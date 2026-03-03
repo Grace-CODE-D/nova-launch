@@ -1,6 +1,6 @@
 use soroban_sdk::{Address, Env};
 
-use crate::types::{DataKey, FactoryState, TokenInfo, BurnRecord};
+use crate::types::{DataKey, FactoryState, TokenInfo};
 
 // ============================================================
 // Storage Functions - Burn Tracking
@@ -10,9 +10,6 @@ use crate::types::{DataKey, FactoryState, TokenInfo, BurnRecord};
 // - get_burn_count(env, token_address) -> u32
 // - get_global_burn_count(env) -> u32
 // - increment_burn_count(env, token_address, amount)
-// - add_burn_record(env, record)
-// - get_burn_record(env, index) -> Option<BurnRecord>
-// - get_burn_record_count(env) -> u32
 // - update_token_supply(env, token_address, delta)
 // ============================================================
 
@@ -27,6 +24,18 @@ pub fn set_admin(env: &Env, admin: &Address) {
 
 pub fn has_admin(env: &Env) -> bool {
     env.storage().instance().has(&DataKey::Admin)
+}
+
+pub fn get_pending_admin(env: &Env) -> Option<Address> {
+    env.storage().instance().get(&DataKey::PendingAdmin)
+}
+
+pub fn set_pending_admin(env: &Env, admin: &Address) {
+    env.storage().instance().set(&DataKey::PendingAdmin, admin);
+}
+
+pub fn clear_pending_admin(env: &Env) {
+    env.storage().instance().remove(&DataKey::PendingAdmin);
 }
 
 // Treasury management
@@ -69,11 +78,12 @@ pub fn get_token_info(env: &Env, index: u32) -> Option<TokenInfo> {
 
 pub fn set_token_info(env: &Env, index: u32, info: &TokenInfo) {
     env.storage().instance().set(&DataKey::Token(index), info);
-    
+
     // Emit token registered event
     crate::events::emit_token_registered(env, &info.address, &info.creator);
 }
 
+#[allow(dead_code)]
 pub fn increment_token_count(env: &Env) -> u32 {
     let count = get_token_count(env) + 1;
     env.storage().instance().set(&DataKey::TokenCount, &count);
@@ -91,19 +101,18 @@ pub fn get_factory_state(env: &Env) -> FactoryState {
     }
 }
 
-/// ============================================================
-///  Security Test Suite — Burn Feature (Issue #163)
-///  Nova-launch / token-factory
-/// ============================================================
-///
-///  Coverage map (matches issue #163 checklist):
-///  [AUTH]  Authorization & Access Control
-///  [ARITH] Arithmetic & Overflow
-///  [STATE] State Consistency
-///  [REEN]  Reentrancy
-///  [INPUT] Input Validation
-///  [DOS]   DoS & Resource Exhaustion
-
+// ============================================================
+// Security Test Suite — Burn Feature (Issue #163)
+// Nova-launch / token-factory
+// ============================================================
+//
+// Coverage map (matches issue #163 checklist):
+// [AUTH]  Authorization & Access Control
+// [ARITH] Arithmetic & Overflow
+// [STATE] State Consistency
+// [REEN]  Reentrancy
+// [INPUT] Input Validation
+// [DOS]   DoS & Resource Exhaustion
 // Temporarily disabled - has compilation errors
 /*
 #[cfg(test)]
@@ -572,9 +581,10 @@ pub fn get_balance(env: &Env, token_index: u32, holder: &Address) -> i128 {
 }
 
 pub fn set_balance(env: &Env, token_index: u32, holder: &Address, balance: i128) {
-    env.storage()
-        .persistent()
-        .set(&crate::types::DataKey::Balance(token_index, holder.clone()), &balance);
+    env.storage().persistent().set(
+        &crate::types::DataKey::Balance(token_index, holder.clone()),
+        &balance,
+    );
 }
 
 pub fn get_burn_count(env: &Env, token_index: u32) -> u32 {
@@ -619,6 +629,7 @@ pub fn set_token_info_by_address(env: &Env, token_address: &Address, info: &Toke
 }
 
 // Update token supply after burn
+#[allow(dead_code)]
 pub fn update_token_supply(env: &Env, token_address: &Address, amount_change: i128) -> Option<()> {
     let mut info = get_token_info_by_address(env, token_address)?;
 
@@ -639,11 +650,8 @@ pub fn update_token_supply(env: &Env, token_address: &Address, amount_change: i1
 // Phase 2 Optimization: Batch admin state operations
 // Allows multiple admin parameters to be updated efficiently in a single transaction
 // Reduces gas by combining storage verification and writes
-pub fn batch_update_fees(
-    env: &Env,
-    base_fee: Option<i128>,
-    metadata_fee: Option<i128>,
-) {
+#[allow(dead_code)]
+pub fn batch_update_fees(env: &Env, base_fee: Option<i128>, metadata_fee: Option<i128>) {
     if let Some(fee) = base_fee {
         set_base_fee(env, fee);
     }
@@ -655,6 +663,7 @@ pub fn batch_update_fees(
 /// Phase 2 Optimization: Get complete admin state in single call
 /// Avoids multiple storage reads when checking authorization and state
 /// Expected savings: 2,000-3,000 CPU instructions per call
+#[allow(dead_code)]
 pub fn get_admin_state(env: &Env) -> (Address, bool) {
     let admin = get_admin(env);
     let paused = is_paused(env);

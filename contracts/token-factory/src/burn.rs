@@ -1,6 +1,6 @@
-use soroban_sdk::{Address, Env, Symbol};
 use crate::storage;
 use crate::types::Error;
+use soroban_sdk::{Address, Env, Symbol};
 
 // ─────────────────────────────────────────────
 //  Constants
@@ -43,9 +43,7 @@ pub fn burn(env: &Env, caller: Address, token_index: u32, amount: i128) -> Resul
     //    • amount   > 0           (validated above)
     //    • balance  >= amount     (checked above)
     //    • total_supply >= amount (invariant: sum of all balances == total_supply)
-    let new_balance = balance
-        .checked_sub(amount)
-        .ok_or(Error::ArithmeticError)?;
+    let new_balance = balance.checked_sub(amount).ok_or(Error::ArithmeticError)?;
 
     let new_supply = info
         .total_supply
@@ -72,6 +70,7 @@ pub fn burn(env: &Env, caller: Address, token_index: u32, amount: i128) -> Resul
 /// - Admin must authenticate AND match the stored admin address
 /// - Holder must be a valid address holding sufficient balance
 /// - Same atomic update guarantee as `burn()`
+#[allow(dead_code)]
 pub fn admin_burn(
     env: &Env,
     admin: Address,
@@ -103,9 +102,7 @@ pub fn admin_burn(
     }
 
     // 6. Safe arithmetic
-    let new_balance = balance
-        .checked_sub(amount)
-        .ok_or(Error::ArithmeticError)?;
+    let new_balance = balance.checked_sub(amount).ok_or(Error::ArithmeticError)?;
 
     let new_supply = info
         .total_supply
@@ -199,7 +196,14 @@ pub fn batch_burn(
     storage::set_token_info(env, token_index, &info);
     storage::increment_burn_count(env, token_index);
 
-    emit_batch_burn_event(env, token_index, &admin, burns.len(), total_burn, new_supply);
+    emit_batch_burn_event(
+        env,
+        token_index,
+        &admin,
+        burns.len(),
+        total_burn,
+        new_supply,
+    );
 
     Ok(())
 }
@@ -214,6 +218,7 @@ pub fn get_burn_count(env: &Env, token_index: u32) -> u32 {
 }
 
 /// Return a holder's current balance for a token.
+#[allow(dead_code)]
 pub fn get_balance(env: &Env, token_index: u32, holder: &Address) -> i128 {
     storage::get_balance(env, token_index, holder)
 }
@@ -251,6 +256,7 @@ fn emit_burn_event(env: &Env, token_index: u32, caller: &Address, amount: i128, 
     );
 }
 
+#[allow(dead_code)]
 fn emit_admin_burn_event(
     env: &Env,
     token_index: u32,

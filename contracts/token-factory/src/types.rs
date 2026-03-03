@@ -79,8 +79,6 @@ pub struct TokenInfo {
     pub burn_count: u32,
     pub metadata_uri: Option<String>,
     pub created_at: u64,
-    pub total_burned: i128,
-    pub burn_count: u32,
     pub clawback_enabled: bool,
 }
 
@@ -115,6 +113,7 @@ pub struct FeeUpdate {
 ///
 /// # Variants
 /// * `Admin` - Factory administrator address
+/// * `PendingAdmin` - Pending admin awaiting acceptance
 /// * `Treasury` - Fee collection address
 /// * `BaseFee` - Base deployment fee amount
 /// * `MetadataFee` - Metadata deployment fee amount
@@ -128,6 +127,7 @@ pub struct FeeUpdate {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DataKey {
     Admin,
+    PendingAdmin,
     Treasury,
     BaseFee,
     MetadataFee,
@@ -159,6 +159,12 @@ pub enum DataKey {
 /// * `InvalidBurnAmount` - Burn amount is invalid
 /// * `BurnAmountExceedsBalance` - Burn amount exceeds available balance
 /// * `ContractPaused` - Operation not allowed while paused
+/// * `NoPendingAdmin` - No pending admin transfer exists
+/// * `MissingAdmin` - Admin address not set
+/// * `MissingTreasury` - Treasury address not set
+/// * `InvalidBaseFee` - Base fee is negative
+/// * `InvalidMetadataFee` - Metadata fee is negative
+/// * `InconsistentTokenCount` - Token count doesn't match stored tokens
 ///
 /// # Examples
 /// ```
@@ -168,6 +174,7 @@ pub enum DataKey {
 /// ```
 #[contracterror]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[allow(clippy::enum_variant_names)]
 pub enum Error {
     InsufficientFee = 1,
     Unauthorized = 2,
@@ -183,4 +190,10 @@ pub enum Error {
     InvalidBurnAmount = 12,
     BurnAmountExceedsBalance = 13,
     ContractPaused = 14,
+    NoPendingAdmin = 15,
+    MissingAdmin = 16,
+    MissingTreasury = 17,
+    InvalidBaseFee = 18,
+    InvalidMetadataFee = 19,
+    InconsistentTokenCount = 20,
 }
