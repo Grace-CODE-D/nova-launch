@@ -1751,3 +1751,6 @@ mod metamorphic_test;
 
 #[cfg(test)]
 mod event_replay_test;
+
+#[cfg(test)]
+mod boundary_chaos_test;
