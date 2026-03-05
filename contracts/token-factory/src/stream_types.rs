@@ -107,3 +107,35 @@ pub fn validate_financial_invariants(
     
     Ok(())
 }
+
+/// Calculate vested amount based on current time
+///
+/// # Returns
+/// Amount vested up to current_time
+pub fn calculate_vested_amount(stream: &StreamInfo, current_time: u64) -> i128 {
+    // Before cliff: nothing vested
+    if current_time < stream.schedule.cliff_time {
+        return 0;
+    }
+    
+    // After end: fully vested
+    if current_time >= stream.schedule.end_time {
+        return stream.amount;
+    }
+    
+    // Between cliff and end: linear vesting
+    let elapsed = current_time - stream.schedule.start_time;
+    let duration = stream.schedule.end_time - stream.schedule.start_time;
+    
+    if duration == 0 {
+        return stream.amount;
+    }
+    
+    // Calculate proportional vested amount
+    let vested = (stream.amount as i128)
+        .checked_mul(elapsed as i128)
+        .and_then(|v| v.checked_div(duration as i128))
+        .unwrap_or(0);
+    
+    vested.min(stream.amount)
+}

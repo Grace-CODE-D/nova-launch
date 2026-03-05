@@ -29,6 +29,9 @@ mod create_stream_test;
 #[cfg(test)]
 mod stream_pagination_test;
 
+#[cfg(test)]
+mod stream_claim_test;
+
 use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, String, Vec};
 use types::{ContractMetadata, Error, FactoryState, TokenInfo, TokenStats};
 
@@ -825,6 +828,74 @@ impl TokenFactory {
         }
 
         Ok(streams)
+    }
+
+    /// Claim vested tokens from a stream
+    ///
+    /// Allows the beneficiary to claim tokens that have vested up to the
+    /// current ledger time. Only the claimable delta (vested - claimed) is released.
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `stream_id` - Stream identifier
+    /// * `recipient` - Beneficiary address (must authorize and match stream recipient)
+    ///
+    /// # Returns
+    /// Amount of tokens claimed
+    ///
+    /// # Errors
+    /// * `Error::StreamNotFound` - Stream ID does not exist
+    /// * `Error::Unauthorized` - Caller is not the stream recipient
+    /// * `Error::StreamCancelled` - Stream has been cancelled
+    /// * `Error::CliffNotReached` - Current time is before cliff time
+    /// * `Error::NothingToClaim` - No new tokens available to claim
+    pub fn claim_stream(
+        env: Env,
+        stream_id: u32,
+        recipient: Address,
+    ) -> Result<i128, Error> {
+        recipient.require_auth();
+
+        // Get stream
+        let mut stream = storage::get_stream(&env, stream_id).ok_or(Error::StreamNotFound)?;
+
+        // Verify recipient
+        if stream.recipient != recipient {
+            return Err(Error::Unauthorized);
+        }
+
+        // Check if cancelled
+        if stream.cancelled {
+            return Err(Error::StreamCancelled);
+        }
+
+        let current_time = env.ledger().timestamp();
+
+        // Check cliff
+        if current_time < stream.schedule.cliff_time {
+            return Err(Error::CliffNotReached);
+        }
+
+        // Calculate vested amount
+        let vested = stream_types::calculate_vested_amount(&stream, current_time);
+
+        // Calculate claimable delta
+        let claimable = vested.checked_sub(stream.claimed).unwrap_or(0);
+
+        if claimable <= 0 {
+            return Err(Error::NothingToClaim);
+        }
+
+        // Update claimed amount atomically
+        stream.claimed = stream.claimed.checked_add(claimable).unwrap_or(stream.amount);
+
+        // Persist updated stream
+        storage::set_stream(&env, stream_id, &stream);
+
+        // Emit event
+        events::emit_stream_claimed(&env, stream_id, &recipient, claimable);
+
+        Ok(claimable)
     }
 
     /// Toggle clawback capability for a token (creator only)

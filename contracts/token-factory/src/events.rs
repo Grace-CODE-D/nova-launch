@@ -420,3 +420,31 @@ pub fn emit_stream_created(
         (creator, recipient, amount, has_metadata),
     );
 }
+
+/// Emit stream claimed event (v1)
+/// 
+/// **Schema Version**: 1
+/// **Event Name**: stm_cl_v1
+/// 
+/// **Topics** (indexed):
+/// - Event name: "stm_cl_v1"
+/// - stream_id: u32 - The stream identifier
+/// 
+/// **Payload** (non-indexed):
+/// - recipient: Address - The beneficiary claiming tokens
+/// - amount: i128 - Amount of tokens claimed
+/// 
+/// **Schema Stability**: This schema is immutable. Any changes require a new version.
+/// 
+/// Emitted when tokens are claimed from a stream
+pub fn emit_stream_claimed(
+    env: &Env,
+    stream_id: u32,
+    recipient: &Address,
+    amount: i128,
+) {
+    env.events().publish(
+        (symbol_short!("stm_cl_v1"), stream_id),
+        (recipient, amount),
+    );
+}
