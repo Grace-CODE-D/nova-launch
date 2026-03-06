@@ -761,4 +761,4 @@ mod tests {
             assert_eq!(stream1.id, stream2.id);
         }
     }
-}
+

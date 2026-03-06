@@ -22,6 +22,8 @@ mod stream_types;
 mod differential_engine;
 #[cfg(test)]
 mod test_helpers;
+#[cfg(test)]
+mod governance_security_regression_test;
 // Temporarily disable non-streaming tests to focus on streaming suite
 // #[cfg(test)]
 // mod creator_streams_test;
