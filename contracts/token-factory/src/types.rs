@@ -410,3 +410,45 @@ pub struct TimelockConfig {
     pub enabled: bool,
 }
 
+/// Type of governance proposal action
+///
+/// Defines the type of parameter or policy change being proposed.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ProposalActionType {
+    FeeUpdate,
+    PauseToggle,
+    TreasuryUpdate,
+    PolicyUpdate,
+}
+
+/// Governance proposal for contract-level changes
+///
+/// Represents a proposal for updating contract parameters or policies.
+///
+/// # Fields
+/// * `id` - Unique proposal identifier
+/// * `proposer` - Address that created the proposal
+/// * `action_type` - Type of action being proposed
+/// * `payload_hash` - Hash of the proposal payload for verification
+/// * `created_at` - Timestamp when proposal was created
+/// * `start_time` - Timestamp when voting starts
+/// * `end_time` - Timestamp when voting ends
+/// * `eta` - Estimated time of execution (after timelock)
+/// * `executed` - Whether the proposal has been executed
+/// * `cancelled` - Whether the proposal has been cancelled
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GovernanceProposal {
+    pub id: u64,
+    pub proposer: Address,
+    pub action_type: ProposalActionType,
+    pub payload_hash: soroban_sdk::BytesN<32>,
+    pub created_at: u64,
+    pub start_time: u64,
+    pub end_time: u64,
+    pub eta: u64,
+    pub executed: bool,
+    pub cancelled: bool,
+}
+

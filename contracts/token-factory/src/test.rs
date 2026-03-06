@@ -960,3 +960,152 @@ fn test_burn_batch_single_address() {
     assert_eq!(info.total_supply, 4_000_000);
     assert_eq!(info.total_burned, 1_000_000);
 }
+
+// Governance type serialization tests
+#[test]
+fn test_proposal_action_type_serialization() {
+    let env = Env::default();
+    
+    // Test all variants serialize and deserialize correctly
+    let fee_update = ProposalActionType::FeeUpdate;
+    let pause_toggle = ProposalActionType::PauseToggle;
+    let treasury_update = ProposalActionType::TreasuryUpdate;
+    let policy_update = ProposalActionType::PolicyUpdate;
+    
+    // Serialize to bytes
+    let fee_bytes = env.to_storage_val(&fee_update);
+    let pause_bytes = env.to_storage_val(&pause_toggle);
+    let treasury_bytes = env.to_storage_val(&treasury_update);
+    let policy_bytes = env.to_storage_val(&policy_update);
+    
+    // Deserialize back
+    let fee_restored: ProposalActionType = env.from_storage_val(&fee_bytes);
+    let pause_restored: ProposalActionType = env.from_storage_val(&pause_bytes);
+    let treasury_restored: ProposalActionType = env.from_storage_val(&treasury_bytes);
+    let policy_restored: ProposalActionType = env.from_storage_val(&policy_bytes);
+    
+    assert_eq!(fee_restored, ProposalActionType::FeeUpdate);
+    assert_eq!(pause_restored, ProposalActionType::PauseToggle);
+    assert_eq!(treasury_restored, ProposalActionType::TreasuryUpdate);
+    assert_eq!(policy_restored, ProposalActionType::PolicyUpdate);
+}
+
+#[test]
+fn test_governance_proposal_serialization() {
+    let env = Env::default();
+    
+    let proposer = Address::generate(&env);
+    let payload_hash = soroban_sdk::BytesN::from_array(&env, &[1u8; 32]);
+    
+    let proposal = GovernanceProposal {
+        id: 42,
+        proposer: proposer.clone(),
+        action_type: ProposalActionType::FeeUpdate,
+        payload_hash: payload_hash.clone(),
+        created_at: 1000,
+        start_time: 2000,
+        end_time: 3000,
+        eta: 4000,
+        executed: false,
+        cancelled: false,
+    };
+    
+    // Serialize
+    let bytes = env.to_storage_val(&proposal);
+    
+    // Deserialize
+    let restored: GovernanceProposal = env.from_storage_val(&bytes);
+    
+    // Verify all fields
+    assert_eq!(restored.id, 42);
+    assert_eq!(restored.proposer, proposer);
+    assert_eq!(restored.action_type, ProposalActionType::FeeUpdate);
+    assert_eq!(restored.payload_hash, payload_hash);
+    assert_eq!(restored.created_at, 1000);
+    assert_eq!(restored.start_time, 2000);
+    assert_eq!(restored.end_time, 3000);
+    assert_eq!(restored.eta, 4000);
+    assert_eq!(restored.executed, false);
+    assert_eq!(restored.cancelled, false);
+}
+
+#[test]
+fn test_governance_proposal_all_action_types() {
+    let env = Env::default();
+    
+    let proposer = Address::generate(&env);
+    let payload_hash = soroban_sdk::BytesN::from_array(&env, &[2u8; 32]);
+    
+    let action_types = vec![
+        ProposalActionType::FeeUpdate,
+        ProposalActionType::PauseToggle,
+        ProposalActionType::TreasuryUpdate,
+        ProposalActionType::PolicyUpdate,
+    ];
+    
+    for action_type in action_types {
+        let proposal = GovernanceProposal {
+            id: 1,
+            proposer: proposer.clone(),
+            action_type: action_type.clone(),
+            payload_hash: payload_hash.clone(),
+            created_at: 100,
+            start_time: 200,
+            end_time: 300,
+            eta: 400,
+            executed: false,
+            cancelled: false,
+        };
+        
+        let bytes = env.to_storage_val(&proposal);
+        let restored: GovernanceProposal = env.from_storage_val(&bytes);
+        
+        assert_eq!(restored.action_type, action_type);
+    }
+}
+
+#[test]
+fn test_governance_proposal_state_flags() {
+    let env = Env::default();
+    
+    let proposer = Address::generate(&env);
+    let payload_hash = soroban_sdk::BytesN::from_array(&env, &[3u8; 32]);
+    
+    // Test executed state
+    let executed_proposal = GovernanceProposal {
+        id: 1,
+        proposer: proposer.clone(),
+        action_type: ProposalActionType::FeeUpdate,
+        payload_hash: payload_hash.clone(),
+        created_at: 100,
+        start_time: 200,
+        end_time: 300,
+        eta: 400,
+        executed: true,
+        cancelled: false,
+    };
+    
+    let bytes = env.to_storage_val(&executed_proposal);
+    let restored: GovernanceProposal = env.from_storage_val(&bytes);
+    assert_eq!(restored.executed, true);
+    assert_eq!(restored.cancelled, false);
+    
+    // Test cancelled state
+    let cancelled_proposal = GovernanceProposal {
+        id: 2,
+        proposer: proposer.clone(),
+        action_type: ProposalActionType::PauseToggle,
+        payload_hash: payload_hash.clone(),
+        created_at: 100,
+        start_time: 200,
+        end_time: 300,
+        eta: 400,
+        executed: false,
+        cancelled: true,
+    };
+    
+    let bytes = env.to_storage_val(&cancelled_proposal);
+    let restored: GovernanceProposal = env.from_storage_val(&bytes);
+    assert_eq!(restored.executed, false);
+    assert_eq!(restored.cancelled, true);
+}
