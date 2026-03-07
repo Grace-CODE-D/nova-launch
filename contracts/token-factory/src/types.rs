@@ -316,6 +316,24 @@ pub struct PendingChange {
     pub treasury: Option<Address>,
 }
 
+/// Governance proposal
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Proposal {
+    pub id: u64,
+    pub proposer: Address,
+    pub action: ActionType,
+    pub description: String,
+    pub created_at: u64,
+    pub voting_ends_at: u64,
+    pub execution_delay: u64,
+    pub votes_for: i128,
+    pub votes_against: i128,
+    pub votes_abstain: i128,
+    pub executed: bool,
+    pub cancelled: bool,
+}
+
 /// Pagination cursor for token queries
 ///
 /// Represents the position in a paginated result set.

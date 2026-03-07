@@ -832,6 +832,15 @@ impl TokenFactory {
         Ok(token_address)
     }
 
+    /// Create a new token
+    ///
+    /// # Arguments
+    /// * `creator` - Address that will own the token
+    /// * `name` - Token name
+    /// * `symbol` - Token symbol
+    /// * `decimals` - Number of decimal places
+    /// * `initial_supply` - Initial token supply
+    /// * `fee_payment` - Fee amount (must be >= base_fee)
     /// Toggle clawback capability for a token (creator only)
     ///
     /// Allows the token creator to enable or disable clawback functionality.
