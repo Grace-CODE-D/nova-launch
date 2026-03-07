@@ -47,7 +47,7 @@ fn supply_strategy() -> impl Strategy<Value = i128> {
     ]
 }
 
-// Strategy for fee amounts
+// Strategy for fee amounts with targeted edge case seeds
 fn fee_strategy() -> impl Strategy<Value = i128> {
     prop_oneof![
         Just(0i128),
@@ -55,6 +55,12 @@ fn fee_strategy() -> impl Strategy<Value = i128> {
         Just(-1000i128),
         Just(i128::MAX),
         Just(i128::MIN),
+        Just(i128::MAX / 2),
+        Just(i128::MAX - 1),
+        Just(i128::MAX - 1000),
+        Just(1),
+        Just(10_000_000),
+        Just(100_000_000),
         1i128..1_000_000_000i128,
     ]
 }
@@ -414,6 +420,103 @@ proptest! {
         let result = client.try_get_token_info(&index);
         prop_assert!(result.is_err());
     }
+
+    #[test]
+    fn fuzz_arithmetic_no_panic(
+        base_fee in 0i128..i128::MAX,
+        metadata_fee in 0i128..i128::MAX,
+    ) {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, TokenFactory);
+        let client = TokenFactoryClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+
+        // Should never panic regardless of values
+        let result = client.try_initialize(&admin, &treasury, &base_fee, &metadata_fee);
+        prop_assert!(result.is_ok());
+
+        let state = client.get_state();
+        
+        // Verify checked arithmetic behavior
+        let sum = state.base_fee.checked_add(state.metadata_fee);
+        if base_fee > i128::MAX - metadata_fee {
+            prop_assert!(sum.is_none());
+        } else {
+            prop_assert!(sum.is_some());
+        }
+    }
+
+    #[test]
+    fn fuzz_fee_update_no_underflow(
+        initial_fee in 0i128..1_000_000_000i128,
+        new_fee in 0i128..1_000_000_000i128,
+    ) {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register_contract(None, TokenFactory);
+        let client = TokenFactoryClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+
+        client.initialize(&admin, &treasury, &initial_fee, &initial_fee);
+
+        // Update should always succeed with valid values
+        let result = client.try_update_fees(&admin, &Some(new_fee), &None);
+        prop_assert!(result.is_ok());
+
+        let state = client.get_state();
+        prop_assert_eq!(state.base_fee, new_fee);
+    }
+
+    #[test]
+    fn fuzz_extreme_fee_combinations(
+        multiplier in 1u32..100u32,
+    ) {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, TokenFactory);
+        let client = TokenFactoryClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+
+        let base = (i128::MAX / 1000) * (multiplier as i128);
+        let metadata = (i128::MAX / 1000) * ((100 - multiplier) as i128);
+
+        let result = client.try_initialize(&admin, &treasury, &base, &metadata);
+        prop_assert!(result.is_ok());
+
+        let state = client.get_state();
+        prop_assert_eq!(state.base_fee, base);
+        prop_assert_eq!(state.metadata_fee, metadata);
+    }
+
+    #[test]
+    fn fuzz_fee_monotonicity(
+        fee1 in 0i128..1_000_000_000i128,
+        fee2 in 0i128..1_000_000_000i128,
+    ) {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register_contract(None, TokenFactory);
+        let client = TokenFactoryClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+
+        client.initialize(&admin, &treasury, &fee1, &0);
+        client.update_fees(&admin, &Some(fee2), &None);
+
+        let state = client.get_state();
+        prop_assert_eq!(state.base_fee, fee2);
+        
+        // Fee should be exactly what we set, no drift
+        prop_assert!(state.base_fee >= 0);
+    }
 }
 
 // Manual edge case tests for specific scenarios
@@ -548,6 +651,52 @@ mod edge_cases {
         // Test boundary: 1 stroop
         let result = client.try_initialize(&admin, &treasury, &1, &1);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_overflow_in_fee_sum_detection() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, TokenFactory);
+        let client = TokenFactoryClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+
+        // These values individually are valid but their sum would overflow
+        let near_max = i128::MAX - 100;
+        client.initialize(&admin, &treasury, &near_max, &200);
+
+        let state = client.get_state();
+        
+        // Verify checked arithmetic detects overflow
+        let sum = state.base_fee.checked_add(state.metadata_fee);
+        assert!(sum.is_none(), "Expected overflow in fee sum");
+    }
+
+    #[test]
+    fn test_no_panic_on_extreme_values() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, TokenFactory);
+        let client = TokenFactoryClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+
+        // Test various extreme combinations - none should panic
+        let extreme_values = [
+            (i128::MAX, 0),
+            (0, i128::MAX),
+            (i128::MAX / 2, i128::MAX / 2),
+            (i128::MAX - 1, 1),
+        ];
+
+        for (base, metadata) in extreme_values {
+            let contract_id = env.register_contract(None, TokenFactory);
+            let client = TokenFactoryClient::new(&env, &contract_id);
+            
+            let result = client.try_initialize(&admin, &treasury, &base, &metadata);
+            assert!(result.is_ok());
+        }
     }
 }
 

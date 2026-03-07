@@ -507,9 +507,9 @@ pub fn create_proposal(
         votes_for: 0,
         votes_against: 0,
         votes_abstain: 0,
-        queued: false,
-        cancelled: false,
-        executed: false,
+        state: crate::types::ProposalState::Created,
+        executed_at: None,
+        cancelled_at: None,
     };
 
     // Persist proposal
@@ -896,6 +896,8 @@ pub fn vote_proposal(
     proposal_id: u64,
     support: VoteChoice,
 ) -> Result<(), Error> {
+    use crate::proposal_state_machine::ProposalStateMachine;
+    
     // Verify voter authentication
     voter.require_auth();
 
@@ -912,6 +914,20 @@ pub fn vote_proposal(
     
     if current_time >= proposal.end_time {
         return Err(Error::VotingEnded);
+    }
+
+    // Transition from Created to Active if this is the first vote
+    if proposal.state == crate::types::ProposalState::Created {
+        ProposalStateMachine::validate_transition(
+            proposal.state,
+            crate::types::ProposalState::Active
+        )?;
+        proposal.state = crate::types::ProposalState::Active;
+    }
+
+    // Check if proposal can be voted on
+    if !ProposalStateMachine::can_vote(proposal.state) {
+        return Err(Error::VotingClosed);
     }
 
     // Check for duplicate vote
@@ -976,23 +992,160 @@ pub fn has_voted(env: &Env, proposal_id: u64, voter: &Address) -> bool {
     storage::has_voted(env, proposal_id, voter)
 }
 
+/// Finalize voting for a proposal
+///
+/// Transitions a proposal from Active to Succeeded or Defeated based on vote results.
+/// This should be called after the voting period ends.
+///
+/// # Arguments
+/// * `env` - Contract environment
+/// * `proposal_id` - The proposal ID to finalize
+///
+/// # Returns
+/// * `Ok(())` - Proposal successfully finalized
+/// * `Err(Error)` - If validation fails
+///
+/// # Errors
+/// * `Error::ProposalNotFound` - If proposal doesn't exist
+/// * `Error::VotingNotStarted` - If voting hasn't started
+/// * `Error::VotingEnded` - If voting is still ongoing
+pub fn finalize_proposal(
+    env: &Env,
+    proposal_id: u64,
+) -> Result<(), Error> {
+    use crate::proposal_state_machine::ProposalStateMachine;
+    
+    let mut proposal = storage::get_proposal(env, proposal_id)
+        .ok_or(Error::ProposalNotFound)?;
+
+    let current_time = env.ledger().timestamp();
+    
+    // Ensure voting has ended
+    if current_time < proposal.end_time {
+        return Err(Error::VotingEnded);
+    }
+
+    // Only finalize Active proposals
+    if proposal.state != crate::types::ProposalState::Active {
+        return Ok(()); // Already finalized
+    }
+
+    // Determine outcome based on votes
+    let new_state = if proposal.votes_for > proposal.votes_against {
+        crate::types::ProposalState::Succeeded
+    } else {
+        crate::types::ProposalState::Defeated
+    };
+
+    // Validate transition
+    ProposalStateMachine::validate_transition(proposal.state, new_state)?;
+    
+    proposal.state = new_state;
+    storage::set_proposal(env, proposal_id, &proposal);
+
+    Ok(())
+}
+
+/// Queue a successful proposal for execution
+///
+/// Moves a proposal that has passed voting into the timelock queue.
+/// Only proposals in Succeeded state with sufficient quorum can be queued.
+///
+/// # Arguments
+/// * `env` - Contract environment
+/// * `proposal_id` - The proposal ID to queue
+///
+/// # Returns
+/// * `Ok(())` - Proposal successfully queued
+/// * `Err(Error)` - If validation fails
+///
+/// # Errors
+/// * `Error::ProposalNotFound` - If proposal doesn't exist
+/// * `Error::VotingNotStarted` - If voting hasn't started yet
+/// * `Error::VotingEnded` - If voting is still ongoing
+/// * `Error::QuorumNotMet` - If proposal didn't reach quorum
+/// * `Error::InvalidStateTransition` - If proposal is not in correct state
+///
+/// # Events
+/// Emits `proposal_queued` event on success
+pub fn queue_proposal(
+    env: &Env,
+    proposal_id: u64,
+) -> Result<(), Error> {
+    use crate::proposal_state_machine::ProposalStateMachine;
+    
+    // First, finalize the proposal if it's still Active
+    finalize_proposal(env, proposal_id)?;
+    
+    // Get proposal
+    let mut proposal = storage::get_proposal(env, proposal_id)
+        .ok_or(Error::ProposalNotFound)?;
+
+    // Validate voting has ended
+    let current_time = env.ledger().timestamp();
+    
+    if current_time < proposal.start_time {
+        return Err(Error::VotingNotStarted);
+    }
+    
+    if current_time < proposal.end_time {
+        return Err(Error::VotingEnded);
+    }
+
+    // Check if proposal can be queued (must be in Succeeded state)
+    if !ProposalStateMachine::can_queue(proposal.state) {
+        return Err(Error::InvalidStateTransition);
+    }
+
+    // Check if already queued
+    if proposal.state == crate::types::ProposalState::Queued {
+        return Err(Error::InvalidStateTransition);
+    }
+
+    // Check quorum (simple majority: votes_for > votes_against)
+    if proposal.votes_for <= proposal.votes_against {
+        return Err(Error::QuorumNotMet);
+    }
+
+    // Transition to Queued state
+    ProposalStateMachine::validate_transition(
+        proposal.state,
+        crate::types::ProposalState::Queued
+    )?;
+    
+    proposal.state = crate::types::ProposalState::Queued;
+
+    // Update proposal in storage
+    storage::set_proposal(env, proposal_id, &proposal);
+
+    // Emit event
+    events::emit_proposal_queued(env, proposal_id, proposal.eta, current_time);
+
+    Ok(())
+}
+
 pub fn execute_proposal(
     env: &Env,
     proposal_id: u64,
 ) -> Result<(), Error> {
+    use crate::proposal_state_machine::ProposalStateMachine;
+    
     let mut proposal = storage::get_proposal(env, proposal_id)
         .ok_or(Error::ProposalNotFound)?;
 
-    if !proposal.queued {
+    // Check if proposal can be executed (must be in Queued state)
+    if !ProposalStateMachine::can_execute(proposal.state) {
         return Err(Error::ProposalNotQueued);
     }
 
-    if proposal.cancelled {
-        return Err(Error::ProposalCancelled);
+    // Check if already executed
+    if proposal.state == crate::types::ProposalState::Executed {
+        return Err(Error::InvalidStateTransition);
     }
 
-    if proposal.executed {
-        return Err(Error::ProposalAlreadyExecuted);
+    // Check if cancelled
+    if proposal.state == crate::types::ProposalState::Cancelled {
+        return Err(Error::ProposalCancelled);
     }
 
     let current_time = env.ledger().timestamp();
@@ -1025,7 +1178,14 @@ pub fn execute_proposal(
         }
     }
 
-    proposal.executed = true;
+    // Transition to Executed state
+    ProposalStateMachine::validate_transition(
+        proposal.state,
+        crate::types::ProposalState::Executed
+    )?;
+    
+    proposal.state = crate::types::ProposalState::Executed;
+    proposal.executed_at = Some(current_time);
     storage::set_proposal(env, proposal_id, &proposal);
 
     events::emit_proposal_executed(env, proposal_id, proposal.action_type);

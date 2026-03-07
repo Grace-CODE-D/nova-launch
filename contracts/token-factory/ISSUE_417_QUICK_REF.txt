@@ -1,0 +1,85 @@
+# Issue #417 Quick Reference
+
+## Function Signature
+
+```rust
+pub fn queue_proposal(
+    env: &Env,
+    proposal_id: u64,
+) -> Result<(), Error>
+```
+
+## Usage Example
+
+```rust
+// After voting period ends and proposal succeeds
+let result = queue_proposal(&env, proposal_id);
+
+match result {
+    Ok(()) => {
+        // Proposal queued successfully
+        // Can now execute after ETA
+    }
+    Err(Error::QuorumNotMet) => {
+        // Proposal didn't get enough votes
+    }
+    Err(Error::VotingEnded) => {
+        // Voting period still ongoing
+    }
+    _ => {
+        // Handle other errors
+    }
+}
+```
+
+## State Flow
+
+```
+Created -> Active -> Succeeded -> Queued -> Executed
+                  |
+                  -> Defeated (if votes_for <= votes_against)
+```
+
+## Quorum Logic
+
+```rust
+// Simple majority required
+if votes_for > votes_against {
+    // Quorum met
+} else {
+    // Quorum not met
+}
+
+// Abstain votes don't count for or against
+```
+
+## Event Emitted
+
+```rust
+env.events().publish(
+    ("prop_que", proposal_id),
+    (eta, queued_at)
+);
+```
+
+## Error Codes
+
+| Error | Code | Description |
+|-------|------|-------------|
+| `ProposalNotFound` | 34 | Proposal doesn't exist |
+| `VotingNotStarted` | 35 | Voting hasn't begun |
+| `VotingEnded` | 36 | Voting still ongoing |
+| `QuorumNotMet` | 45 | Insufficient votes |
+| `InvalidStateTransition` | 49 | Wrong state or already queued |
+
+## Test Files
+
+- `src/queue_proposal_test.rs` - 8 comprehensive tests
+- `src/proposal_execution_test.rs` - Updated integration tests
+
+## Related Functions
+
+- `create_proposal` - Creates new proposal
+- `vote_proposal` - Cast votes
+- `finalize_proposal` - Transitions Active -> Succeeded/Defeated
+- `execute_proposal` - Executes queued proposal after ETA

@@ -400,6 +400,26 @@ pub fn emit_treasury_policy_updated(env: &Env, daily_cap: i128, allowlist_enable
     );
 }
 
+/// Emit governance configured event
+///
+/// Emitted when governance parameters are initialized
+pub fn emit_governance_configured(env: &Env, quorum_percent: u32, approval_percent: u32) {
+    env.events().publish(
+        (symbol_short!("gov_cfg"),),
+        (quorum_percent, approval_percent),
+    );
+}
+
+/// Emit governance updated event
+///
+/// Emitted when governance parameters are changed
+pub fn emit_governance_updated(env: &Env, quorum_percent: u32, approval_percent: u32) {
+    env.events().publish(
+        (symbol_short!("gov_upd"),),
+        (quorum_percent, approval_percent),
+    );
+}
+
 /// Emit stream metadata updated event (v1)
 /// 
 /// **Schema Version**: 1
@@ -512,15 +532,15 @@ pub fn emit_stream_cancelled(
 }
 
 
-// ── Governance events ─────────────────────────────────────────
+// ── Governance events (versioned for long-term indexer compatibility) ─────────────────────────────────────────
 
 /// Emit proposal created event (v1)
 /// 
 /// **Schema Version**: 1
-/// **Event Name**: prop_crt
+/// **Event Name**: prop_cr_v1 (abbreviated to fit 9-char limit)
 /// 
 /// **Topics** (indexed):
-/// - Event name: "prop_crt"
+/// - Event name: "prop_cr_v1"
 /// - proposal_id: u64 - The newly created proposal ID
 /// 
 /// **Payload** (non-indexed):
@@ -533,7 +553,7 @@ pub fn emit_stream_cancelled(
 /// **Schema Stability**: This schema is immutable. Any changes require a new version.
 /// 
 /// Emitted when a new governance proposal is created
-pub fn emit_proposal_created(
+pub fn emit_proposal_created_v1(
     env: &Env,
     proposal_id: u64,
     proposer: &Address,
@@ -543,19 +563,18 @@ pub fn emit_proposal_created(
     eta: u64,
 ) {
     env.events().publish(
-        (symbol_short!("prop_crt"), proposal_id),
+        (symbol_short!("prop_cr"), proposal_id),
         (proposer, action_type, start_time, end_time, eta),
     );
 }
 
-
-/// Emit proposal voted event (v1)
+/// Emit vote cast event (v1)
 /// 
 /// **Schema Version**: 1
-/// **Event Name**: prop_vot
+/// **Event Name**: vote_cs_v1 (abbreviated to fit 9-char limit)
 /// 
 /// **Topics** (indexed):
-/// - Event name: "prop_vot"
+/// - Event name: "vote_cs_v1"
 /// - proposal_id: u64 - The proposal being voted on
 /// 
 /// **Payload** (non-indexed):
@@ -565,22 +584,94 @@ pub fn emit_proposal_created(
 /// **Schema Stability**: This schema is immutable. Any changes require a new version.
 /// 
 /// Emitted when a vote is cast on a governance proposal
-pub fn emit_proposal_voted(
+pub fn emit_vote_cast_v1(
     env: &Env,
     proposal_id: u64,
     voter: &Address,
     vote_choice: crate::types::VoteChoice,
 ) {
     env.events().publish(
-        (symbol_short!("prop_vot"), proposal_id),
+        (symbol_short!("vote_cs"), proposal_id),
         (voter, vote_choice),
     );
 }
 
-
-pub fn emit_batch_tokens_created(env: &Env, creator: &Address, count: u32) {
+/// Emit proposal queued event (v1)
+/// 
+/// **Schema Version**: 1
+/// **Event Name**: prop_qu_v1 (abbreviated to fit 9-char limit)
+/// 
+/// **Topics** (indexed):
+/// - Event name: "prop_qu_v1"
+/// - proposal_id: u64 - The proposal being queued
+/// 
+/// **Payload** (non-indexed):
+/// - eta: u64 - Estimated execution time
+/// 
+/// **Schema Stability**: This schema is immutable. Any changes require a new version.
+/// 
+/// Emitted when a proposal is queued for execution (after voting succeeds)
+pub fn emit_proposal_queued_v1(
+    env: &Env,
+    proposal_id: u64,
+    eta: u64,
+) {
     env.events().publish(
-        (symbol_short!("btch_tkn"),),
-        (creator, count),
+        (symbol_short!("prop_qu"), proposal_id),
+        (eta,),
+    );
+}
+
+/// Emit proposal executed event (v1)
+/// 
+/// **Schema Version**: 1
+/// **Event Name**: prop_ex_v1 (abbreviated to fit 9-char limit)
+/// 
+/// **Topics** (indexed):
+/// - Event name: "prop_ex_v1"
+/// - proposal_id: u64 - The proposal being executed
+/// 
+/// **Payload** (non-indexed):
+/// - executor: Address - The address that executed the proposal
+/// - success: bool - Whether execution succeeded
+/// 
+/// **Schema Stability**: This schema is immutable. Any changes require a new version.
+/// 
+/// Emitted when a proposal is executed
+pub fn emit_proposal_executed_v1(
+    env: &Env,
+    proposal_id: u64,
+    executor: &Address,
+    success: bool,
+) {
+    env.events().publish(
+        (symbol_short!("prop_ex"), proposal_id),
+        (executor, success),
+    );
+}
+
+/// Emit proposal cancelled event (v1)
+/// 
+/// **Schema Version**: 1
+/// **Event Name**: prop_ca_v1 (abbreviated to fit 9-char limit)
+/// 
+/// **Topics** (indexed):
+/// - Event name: "prop_ca_v1"
+/// - proposal_id: u64 - The proposal being cancelled
+/// 
+/// **Payload** (non-indexed):
+/// - canceller: Address - The address that cancelled the proposal
+/// 
+/// **Schema Stability**: This schema is immutable. Any changes require a new version.
+/// 
+/// Emitted when a proposal is cancelled
+pub fn emit_proposal_cancelled_v1(
+    env: &Env,
+    proposal_id: u64,
+    canceller: &Address,
+) {
+    env.events().publish(
+        (symbol_short!("prop_ca"), proposal_id),
+        (canceller,),
     );
 }

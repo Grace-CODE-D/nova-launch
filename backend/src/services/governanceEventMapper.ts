@@ -42,6 +42,13 @@ export class GovernanceEventMapper {
 
     const eventName = event.topic[0];
     const governanceEvents = [
+      // v1 versioned events (abbreviated to fit 9-char limit)
+      'prop_cr',
+      'vote_cs',
+      'prop_qu',
+      'prop_ex',
+      'prop_ca',
+      // Legacy events (for backward compatibility)
       'prop_create',
       'vote_cast',
       'prop_exec',
@@ -63,12 +70,19 @@ export class GovernanceEventMapper {
     const eventName = event.topic[0];
 
     switch (eventName) {
+      // v1 versioned events (abbreviated)
+      case 'prop_cr':
       case 'prop_create':
         return this.mapProposalCreatedEvent(event);
+      case 'vote_cs':
       case 'vote_cast':
         return this.mapVoteCastEvent(event);
+      case 'prop_qu':
+        return this.mapProposalQueuedEvent(event);
+      case 'prop_ex':
       case 'prop_exec':
         return this.mapProposalExecutedEvent(event);
+      case 'prop_ca':
       case 'prop_cancel':
         return this.mapProposalCancelledEvent(event);
       case 'prop_status':
@@ -121,6 +135,27 @@ export class GovernanceEventMapper {
       support: value.support === true || value.support === 1,
       weight: value.weight?.toString() || '0',
       reason: value.reason,
+    };
+  }
+
+  /**
+   * Map proposal queued event
+   */
+  private mapProposalQueuedEvent(event: StellarEvent): ProposalExecutedEvent {
+    const value = event.value || {};
+    const proposalId = event.topic[1] ? parseInt(event.topic[1], 10) : 0;
+
+    return {
+      type: 'proposal_executed',
+      txHash: event.transaction_hash,
+      ledger: event.ledger,
+      timestamp: new Date(event.ledger_close_time),
+      contractId: event.contract_id,
+      proposalId,
+      executor: value.executor || '',
+      success: true,
+      returnData: value.return_data,
+      gasUsed: value.gas_used?.toString(),
     };
   }
 

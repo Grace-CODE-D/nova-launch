@@ -10,9 +10,9 @@
 
 use crate::timelock::{
     create_proposal, vote_proposal, get_proposal, initialize_timelock,
-    execute_proposal,
+    execute_proposal, queue_proposal,
 };
-use crate::types::{ActionType, VoteChoice, Error};
+use crate::types::{ActionType, VoteChoice, Error, ProposalState};
 use crate::storage;
 use soroban_sdk::{testutils::Address as _, vec, Env};
 use soroban_sdk::testutils::{Ledger, Events};
@@ -78,20 +78,6 @@ fn create_and_pass_proposal(
     proposal_id
 }
 
-// Helper to manually queue a proposal (since queue_proposal is another contributor's issue)
-fn manually_queue_proposal(env: &Env, proposal_id: u64) {
-    let mut proposal = storage::get_proposal(env, proposal_id).unwrap();
-    proposal.queued = true;
-    storage::set_proposal(env, proposal_id, &proposal);
-}
-
-// Helper to manually cancel a proposal (since cancel_proposal is another contributor's issue)
-fn manually_cancel_proposal(env: &Env, proposal_id: u64) {
-    let mut proposal = storage::get_proposal(env, proposal_id).unwrap();
-    proposal.cancelled = true;
-    storage::set_proposal(env, proposal_id, &proposal);
-}
-
 // ═══════════════════════════════════════════════════════════════════════════
 // Test 1: Complete execution flow for fee change
 // ═══════════════════════════════════════════════════════════════════════════
@@ -105,14 +91,12 @@ fn test_execute_proposal_fee_change_success() {
     // Create and pass fee change proposal
     let proposal_id = create_and_pass_proposal(&env, &admin, ActionType::FeeChange);
     
-    // Queue the proposal (manually since queue_proposal is another contributor's issue)
-    manually_queue_proposal(&env, proposal_id);
+    // Queue the proposal
+    queue_proposal(&env, proposal_id).unwrap();
     
     // Verify proposal is queued
     let proposal = get_proposal(&env, proposal_id).unwrap();
-    assert!(proposal.queued);
-    assert!(!proposal.executed);
-    assert!(!proposal.cancelled);
+    assert_eq!(proposal.state, ProposalState::Queued);
     
     // Try to execute before timelock - should fail
     let result = execute_proposal(&env, proposal_id);
@@ -128,7 +112,8 @@ fn test_execute_proposal_fee_change_success() {
     
     // Verify proposal marked as executed
     let proposal = get_proposal(&env, proposal_id).unwrap();
-    assert!(proposal.executed);
+    assert_eq!(proposal.state, ProposalState::Executed);
+    assert!(proposal.executed_at.is_some());
     
     // Verify event emitted
     let events: Vec<_> = env.events().all()
@@ -152,8 +137,8 @@ fn test_execute_proposal_pause_contract() {
     // Create and pass pause proposal
     let proposal_id = create_and_pass_proposal(&env, &admin, ActionType::PauseContract);
     
-    // Queue and execute (manually since queue_proposal is another contributor's issue)
-    manually_queue_proposal(&env, proposal_id);
+    // Queue and execute
+    queue_proposal(&env, proposal_id).unwrap();
     
     let proposal = get_proposal(&env, proposal_id).unwrap();
     env.ledger().with_mut(|li| {
@@ -188,8 +173,8 @@ fn test_execute_proposal_unpause_contract() {
     // Create and pass unpause proposal
     let proposal_id = create_and_pass_proposal(&env, &admin, ActionType::UnpauseContract);
     
-    // Queue and execute (manually since queue_proposal is another contributor's issue)
-    manually_queue_proposal(&env, proposal_id);
+    // Queue and execute
+    queue_proposal(&env, proposal_id).unwrap();
     
     let proposal = get_proposal(&env, proposal_id).unwrap();
     env.ledger().with_mut(|li| {
@@ -243,11 +228,14 @@ fn test_execute_cancelled_proposal_fails() {
     // Create and pass proposal
     let proposal_id = create_and_pass_proposal(&env, &admin, ActionType::FeeChange);
     
-    // Queue the proposal (manually since queue_proposal is another contributor's issue)
-    manually_queue_proposal(&env, proposal_id);
+    // Queue the proposal
+    queue_proposal(&env, proposal_id).unwrap();
     
-    // Cancel the proposal (manually since cancel_proposal is another contributor's issue)
-    manually_cancel_proposal(&env, proposal_id);
+    // Manually cancel the proposal (cancel_proposal is another contributor's issue)
+    let mut proposal = storage::get_proposal(&env, proposal_id).unwrap();
+    proposal.state = ProposalState::Cancelled;
+    proposal.cancelled_at = Some(env.ledger().timestamp());
+    storage::set_proposal(&env, proposal_id, &proposal);
     
     let proposal = get_proposal(&env, proposal_id).unwrap();
     
@@ -305,8 +293,8 @@ fn test_double_execute_fails() {
     // Create and pass proposal
     let proposal_id = create_and_pass_proposal(&env, &admin, ActionType::FeeChange);
     
-    // Queue the proposal (manually since queue_proposal is another contributor's issue)
-    manually_queue_proposal(&env, proposal_id);
+    // Queue the proposal
+    queue_proposal(&env, proposal_id).unwrap();
     
     let proposal = get_proposal(&env, proposal_id).unwrap();
     
@@ -320,7 +308,7 @@ fn test_double_execute_fails() {
     
     // Try to execute again - should fail
     let result = execute_proposal(&env, proposal_id);
-    assert_eq!(result, Err(Error::ProposalAlreadyExecuted));
+    assert_eq!(result, Err(Error::InvalidStateTransition));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -334,8 +322,8 @@ fn test_execution_event_sequence() {
     // Create and pass proposal
     let proposal_id = create_and_pass_proposal(&env, &admin, ActionType::FeeChange);
     
-    // Queue the proposal (manually since queue_proposal is another contributor's issue)
-    manually_queue_proposal(&env, proposal_id);
+    // Queue the proposal
+    queue_proposal(&env, proposal_id).unwrap();
     
     let proposal = get_proposal(&env, proposal_id).unwrap();
     
@@ -354,8 +342,9 @@ fn test_execution_event_sequence() {
         .map(|e| e.0.get(0).unwrap())
         .collect();
     
-    // Should have: prop_crt (created), prop_vot (votes), prop_exe (executed)
+    // Should have: prop_crt (created), prop_vot (votes), prop_que (queued), prop_exe (executed)
     assert!(event_types.contains(&Symbol::new(&env, "prop_crt")));
+    assert!(event_types.contains(&Symbol::new(&env, "prop_que")));
     assert!(event_types.contains(&Symbol::new(&env, "prop_exe")));
     
     let vote_count = event_types.iter()
