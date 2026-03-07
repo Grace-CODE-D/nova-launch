@@ -31,3 +31,10 @@ pub const FEES_UPDATED_VERSION: u32 = 1;
 pub const ADMIN_BURN_VERSION: u32 = 1;
 pub const CLAWBACK_VERSION: u32 = 1;
 pub const TOKEN_BURNED_VERSION: u32 = 1;
+
+// Governance event versions (v1)
+pub const PROPOSAL_CREATED_VERSION: u32 = 1;
+pub const VOTE_CAST_VERSION: u32 = 1;
+pub const PROPOSAL_QUEUED_VERSION: u32 = 1;
+pub const PROPOSAL_EXECUTED_VERSION: u32 = 1;
+pub const PROPOSAL_CANCELLED_VERSION: u32 = 1;
