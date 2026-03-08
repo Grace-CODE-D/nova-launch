@@ -965,6 +965,70 @@ pub fn get_next_stream_id(env: &Env) -> u64 {
     id
 }
 
+// ── Vault storage functions ───────────────────────────────
+
+/// Get the total number of vaults created.
+pub fn get_vault_count(env: &Env) -> u64 {
+    env.storage().instance().get(&DataKey::VaultCount).unwrap_or(0_u64)
+}
+
+/// Increment vault count and return the new vault id.
+pub fn increment_vault_count(env: &Env) -> Result<u64, Error> {
+    let id = get_vault_count(env)
+        .checked_add(1)
+        .ok_or(Error::ArithmeticError)?;
+    env.storage().instance().set(&DataKey::VaultCount, &id);
+    Ok(id)
+}
+
+/// Get a vault by id.
+pub fn get_vault(env: &Env, vault_id: u64) -> Option<crate::types::Vault> {
+    env.storage().persistent().get(&DataKey::Vault(vault_id))
+}
+
+/// Persist a vault and maintain owner/creator index mappings.
+pub fn set_vault(env: &Env, vault: &crate::types::Vault) -> Result<(), Error> {
+    env.storage()
+        .persistent()
+        .set(&DataKey::Vault(vault.id), vault);
+
+    let owner_slot = get_owner_vault_count(env, &vault.owner);
+    env.storage().persistent().set(
+        &DataKey::VaultByOwner(vault.owner.clone(), owner_slot),
+        &vault.id,
+    );
+    let next_owner_slot = owner_slot.checked_add(1).ok_or(Error::ArithmeticError)?;
+    env.storage()
+        .persistent()
+        .set(&DataKey::OwnerVaultCount(vault.owner.clone()), &next_owner_slot);
+
+    let creator_slot = get_creator_vault_count(env, &vault.creator);
+    env.storage().persistent().set(
+        &DataKey::VaultByCreator(vault.creator.clone(), creator_slot),
+        &vault.id,
+    );
+    let next_creator_slot = creator_slot.checked_add(1).ok_or(Error::ArithmeticError)?;
+    env.storage().persistent().set(
+        &DataKey::CreatorVaultCount(vault.creator.clone()),
+        &next_creator_slot,
+    );
+    Ok(())
+}
+
+pub fn get_owner_vault_count(env: &Env, owner: &Address) -> u32 {
+    env.storage()
+        .persistent()
+        .get(&DataKey::OwnerVaultCount(owner.clone()))
+        .unwrap_or(0)
+}
+
+pub fn get_creator_vault_count(env: &Env, creator: &Address) -> u32 {
+    env.storage()
+        .persistent()
+        .get(&DataKey::CreatorVaultCount(creator.clone()))
+        .unwrap_or(0)
+}
+
 // ── Governance proposal storage ─────────────────────────────────────────
 
 /// Get proposal count

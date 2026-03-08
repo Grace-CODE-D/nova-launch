@@ -46,7 +46,7 @@
 /// - Data types for all parameters must remain unchanged
 ///
 /// Any schema changes require creating a new version (e.g., init_v2).
-use soroban_sdk::{symbol_short, Address, Env, String};
+use soroban_sdk::{symbol_short, Address, BytesN, Env, String};
 
 /// Emit initialized event (v1)
 ///
@@ -493,6 +493,32 @@ pub fn emit_stream_claimed(env: &Env, stream_id: u64, recipient: &Address, amoun
 pub fn emit_stream_cancelled(env: &Env, stream_id: u64, creator: &Address) {
     env.events()
         .publish((symbol_short!("strm_cnl"),), (stream_id, creator));
+}
+
+/// Emit vault created event
+///
+/// Published when a new vault allocation is created
+pub fn emit_vault_created(
+    env: &Env,
+    vault_id: u64,
+    creator: &Address,
+    owner: &Address,
+    token: &Address,
+    amount: i128,
+    unlock_time: u64,
+    milestone_hash: &BytesN<32>,
+) {
+    env.events().publish(
+        (symbol_short!("vlt_crt"), vault_id),
+        (
+            creator.clone(),
+            owner.clone(),
+            token.clone(),
+            amount,
+            unlock_time,
+            milestone_hash.clone(),
+        ),
+    );
 }
 
 // ── Governance events (versioned for long-term indexer compatibility) ─────────────────────────────────────────

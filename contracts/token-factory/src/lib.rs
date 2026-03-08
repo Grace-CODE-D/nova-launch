@@ -57,10 +57,10 @@ mod streaming;
 // #[cfg(test)]
 // mod governance_test;
 
-use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, String, Vec};
+use soroban_sdk::{contract, contractimpl, symbol_short, Address, BytesN, Env, String, Vec};
 use types::{
     ContractMetadata, Error, FactoryState, PaginationCursor, StreamInfo, StreamPage, StreamParams,
-    TokenInfo, TokenStats,
+    TokenInfo, TokenStats, Vault, VaultStatus,
 };
 
 #[contract]
@@ -1592,6 +1592,72 @@ impl TokenFactory {
     // Stream Functions
     // ═══════════════════════════════════════════════════════════════════════
 
+    /// Create a vault with either time-based unlock, milestone-based unlock, or both.
+    pub fn create_vault(
+        env: Env,
+        creator: Address,
+        token: Address,
+        owner: Address,
+        amount: i128,
+        unlock_time: u64,
+        milestone_hash: BytesN<32>,
+    ) -> Result<u64, Error> {
+        creator.require_auth();
+
+        if storage::is_paused(&env) {
+            return Err(Error::ContractPaused);
+        }
+
+        if amount <= 0 {
+            return Err(Error::InvalidAmount);
+        }
+
+        let zero_hash = BytesN::from_array(&env, &[0u8; 32]);
+        let has_time_unlock = unlock_time > 0;
+        let has_milestone_unlock = milestone_hash != zero_hash;
+
+        if !has_time_unlock && !has_milestone_unlock {
+            return Err(Error::InvalidParameters);
+        }
+
+        if storage::get_token_info_by_address(&env, &token).is_none() {
+            return Err(Error::TokenNotFound);
+        }
+
+        let vault_id = storage::increment_vault_count(&env)?;
+        let vault = Vault {
+            id: vault_id,
+            token: token.clone(),
+            owner: owner.clone(),
+            creator: creator.clone(),
+            total_amount: amount,
+            claimed_amount: 0,
+            unlock_time,
+            milestone_hash: milestone_hash.clone(),
+            status: VaultStatus::Active,
+            created_at: env.ledger().timestamp(),
+        };
+
+        storage::set_vault(&env, &vault)?;
+
+        events::emit_vault_created(
+            &env,
+            vault_id,
+            &creator,
+            &owner,
+            &token,
+            amount,
+            unlock_time,
+            &milestone_hash,
+        );
+
+        Ok(vault_id)
+    }
+
+    pub fn get_vault(env: Env, vault_id: u64) -> Result<Vault, Error> {
+        storage::get_vault(&env, vault_id).ok_or(Error::TokenNotFound)
+    }
+
     /// Update stream metadata (creator/admin only)
     ///
     /// Allows the stream creator or admin to update the metadata associated with
@@ -1882,6 +1948,9 @@ mod gas_regression_test;
 
 #[cfg(all(test, feature = "legacy-tests"))]
 mod event_replay_test;
+
+#[cfg(test)]
+mod vault_creation_test;
 
 // #[cfg(test)]
 // mod boundary_chaos_test;
