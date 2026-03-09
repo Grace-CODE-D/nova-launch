@@ -180,29 +180,6 @@ pub struct FeeUpdate {
 }
 
 /// Storage keys for contract data
-///
-/// Defines all storage locations used by the factory contract.
-/// Each variant maps to a specific piece of contract state.
-///
-/// # Variants
-/// * `Admin` - Factory administrator address
-/// * `Treasury` - Fee collection address
-/// * `BaseFee` - Base deployment fee amount
-/// * `MetadataFee` - Metadata deployment fee amount
-/// * `TokenCount` - Total number of tokens created
-/// * `Token(u32)` - Token info by index
-/// * `Balance(u32, Address)` - Token balance for holder
-/// * `BurnCount(u32)` - Number of burns for token
-/// * `TokenByAddress(Address)` - Token info lookup by address
-/// * `Paused` - Contract pause state
-/// * `TimelockConfig` - Timelock configuration
-/// * `PendingChange(u64)` - Pending change by ID
-/// * `NextChangeId` - Next available change ID
-/// * `CreatorTokens(Address)` - Vector of token indices for a creator
-/// * `CreatorTokenCount(Address)` - Number of tokens created by address
-/// * `TreasuryPolicy` - Treasury withdrawal policy
-/// * `WithdrawalPeriod` - Current withdrawal period tracking
-/// * `AllowedRecipient(Address)` - Whether address is allowed recipient
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DataKey {
@@ -247,11 +224,6 @@ pub enum DataKey {
     CreatorVaultCount(Address),
 }
 
-/// Contract error codes
-///
-/// Every variant maps to a stable numeric code consumed by downstream clients.
-/// Vault lifecycle failures use codes 60-65 (`VaultNotFound`, `VaultLocked`,
-/// `VaultAlreadyClaimed`, `VaultCancelled`, `InvalidVaultConfig`, `NothingToClaim`).
 #[contracterror]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Error {
@@ -296,6 +268,8 @@ pub enum Error {
     QuorumNotMet = 39,
     ProposalNotFound = 40,
     ProposalNotQueued = 41,
+    InvalidProof = 42,
+    ProofRequired = 43,
     InvalidTimeWindow = 44,
     PayloadTooLarge = 45,
     AlreadyVoted = 46,
@@ -303,6 +277,7 @@ pub enum Error {
     AddressFrozen = 48,
     FreezeNotEnabled = 49,
     AddressNotFrozen = 50,
+    VerificationUnavailable = 51,
     VaultNotFound = 60,
     VaultLocked = 61,
     VaultAlreadyClaimed = 62,

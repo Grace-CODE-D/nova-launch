@@ -521,6 +521,19 @@ pub fn emit_vault_created(
     );
 }
 
+/// Published when a vault is successfully claimed
+pub fn emit_vault_claimed(
+    env: &Env,
+    vault_id: u64,
+    owner: &Address,
+    amount: i128,
+) {
+    env.events().publish(
+        (symbol_short!("vlt_clm"), vault_id),
+        (owner.clone(), amount),
+    );
+}
+
 // ── Governance events (versioned for long-term indexer compatibility) ─────────────────────────────────────────
 
 /// Emit proposal created event (v1)

@@ -7,6 +7,9 @@ mod burn;
 mod differential_engine;
 mod event_versions;
 mod events;
+mod milestone_verification;
+#[cfg(test)]
+mod milestone_verification_test;
 mod mint;
 mod pagination;
 mod proposal_state_machine;
@@ -57,11 +60,12 @@ mod streaming;
 // #[cfg(test)]
 // mod governance_test;
 
-use soroban_sdk::{contract, contractimpl, symbol_short, Address, BytesN, Env, String, Vec};
+use soroban_sdk::{contract, contractimpl, symbol_short, Address, Bytes, BytesN, Env, String, Vec};
 use types::{
     ContractMetadata, Error, FactoryState, PaginationCursor, StreamInfo, StreamPage, StreamParams,
     TokenInfo, TokenStats, Vault, VaultStatus,
 };
+use crate::milestone_verification::MilestoneVerifier;
 
 #[contract]
 pub struct TokenFactory;
@@ -1656,6 +1660,111 @@ impl TokenFactory {
 
     pub fn get_vault(env: Env, vault_id: u64) -> Result<Vault, Error> {
         storage::get_vault(&env, vault_id).ok_or(Error::TokenNotFound)
+    }
+
+    /// Claim tokens from a vault
+    ///
+    /// # Parameters
+    /// - `env`: Contract environment
+    /// - `owner`: Address claiming the vault (must match vault owner)
+    /// - `vault_id`: ID of the vault to claim
+    /// - `proof`: Optional milestone completion proof (required if milestone_hash != 0)
+    ///
+    /// # Returns
+    /// - `Ok(claimed_amount)` on success
+    /// - `Err(Error)` on failure
+    ///
+    /// # Verification Flow
+    /// 1. Load vault and verify owner authorization
+    /// 2. Check vault status (must be Active)
+    /// 3. If milestone_hash != 0, verify proof via MilestoneVerifier
+    /// 4. Check time-based unlock conditions
+    /// 5. Transfer tokens and update vault status
+    ///
+    /// # Integration Point
+    /// TODO: The verifier instance should be injected or configured during contract
+    /// initialization. For testing, use MilestoneVerifierStub. For production,
+    /// replace with oracle-based verifier.
+    pub fn claim_vault(
+        env: Env,
+        owner: Address,
+        vault_id: u64,
+        proof: Option<Bytes>,
+    ) -> Result<i128, Error> {
+        owner.require_auth();
+
+        if storage::is_paused(&env) {
+            return Err(Error::ContractPaused);
+        }
+
+        // Load vault
+        let mut vault = storage::get_vault(&env, vault_id).ok_or(Error::VaultNotFound)?;
+
+        // Verify owner
+        if vault.owner != owner {
+            return Err(Error::Unauthorized);
+        }
+
+        // Check vault status
+        if vault.status != VaultStatus::Active {
+            return match vault.status {
+                VaultStatus::Claimed => Err(Error::VaultAlreadyClaimed),
+                VaultStatus::Cancelled => Err(Error::VaultCancelled),
+                _ => Err(Error::InvalidParameters),
+            };
+        }
+
+        // Milestone verification (if required)
+        let zero_hash = BytesN::from_array(&env, &[0u8; 32]);
+        if vault.milestone_hash != zero_hash {
+            // Non-zero milestone_hash requires proof
+            let proof_bytes = proof.ok_or(Error::ProofRequired)?;
+
+            // TODO: Inject verifier instance (currently using stub)
+            // In production, replace with oracle-based verifier that:
+            // - Validates cryptographic signatures from trusted oracles
+            // - Checks proof timestamps to prevent replay attacks
+            // - Verifies milestone_hash matches proof payload
+            // - Handles oracle service unavailability gracefully
+            use crate::milestone_verification::MilestoneVerifier as _;
+            let verifier = milestone_verification::MilestoneVerifierStub::new(&env);
+
+            let is_valid =
+                verifier.verify_milestone(&env, &vault.milestone_hash, &proof_bytes)?;
+
+            if !is_valid {
+                return Err(Error::InvalidProof);
+            }
+        }
+
+        // Time-based unlock check (independent of milestone verification)
+        let current_time = env.ledger().timestamp();
+        if vault.unlock_time > 0 && current_time < vault.unlock_time {
+            return Err(Error::VaultLocked);
+        }
+
+        // Calculate claimable amount
+        let claimable = vault
+            .total_amount
+            .checked_sub(vault.claimed_amount)
+            .ok_or(Error::ArithmeticError)?;
+        if claimable <= 0 {
+            return Err(Error::NothingToClaim);
+        }
+
+        // Transfer tokens
+        let token_client = soroban_sdk::token::Client::new(&env, &vault.token);
+        token_client.transfer(&env.current_contract_address(), &owner, &claimable);
+
+        // Update vault
+        vault.claimed_amount = vault.total_amount;
+        vault.status = VaultStatus::Claimed;
+        storage::set_vault(&env, &vault)?;
+
+        // Emit event
+        events::emit_vault_claimed(&env, vault_id, &owner, claimable);
+
+        Ok(claimable)
     }
 
     /// Update stream metadata (creator/admin only)
