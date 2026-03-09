@@ -186,3 +186,61 @@ enum ProposalStatus {
   CANCELLED
   EXPIRED
 }
+
+model Campaign {
+  id            String         @id @default(uuid())
+  campaignId    Int            @unique
+  tokenId       String
+  creator       String
+  type          CampaignType
+  status        CampaignStatus @default(ACTIVE)
+  targetAmount  BigInt
+  currentAmount BigInt         @default(0)
+  executionCount Int           @default(0)
+  startTime     DateTime
+  endTime       DateTime?
+  metadata      String?
+  txHash        String         @unique
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  completedAt   DateTime?
+  cancelledAt   DateTime?
+
+  executions CampaignExecution[]
+
+  @@index([tokenId])
+  @@index([creator])
+  @@index([status])
+  @@index([type])
+  @@index([startTime])
+  @@index([createdAt])
+}
+
+model CampaignExecution {
+  id         String   @id @default(uuid())
+  campaignId String
+  executor   String
+  amount     BigInt
+  recipient  String?
+  txHash     String   @unique
+  executedAt DateTime @default(now())
+
+  campaign Campaign @relation(fields: [campaignId], references: [id])
+
+  @@index([campaignId])
+  @@index([executor])
+  @@index([executedAt])
+}
+
+enum CampaignType {
+  BUYBACK
+  AIRDROP
+  LIQUIDITY
+}
+
+enum CampaignStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
