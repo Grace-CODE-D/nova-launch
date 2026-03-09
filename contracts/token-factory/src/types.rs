@@ -252,6 +252,10 @@ pub enum DataKey {
     VaultByCreator(Address, u32),
     CreatorVaultCount(Address),
     PendingAdmin,
+    // Buyback campaign keys
+    BuybackCampaign(u64),
+    BuybackCampaignCount,
+    NextCampaignId,
 }
 
 #[contracterror]
@@ -308,11 +312,8 @@ pub enum Error {
     ProposalCancelled = 49,
     QuorumNotMet = 50,
     CampaignNotFound = 51,
-    CampaignAlreadyPaused = 52,
-    CampaignNotPaused = 53,
-    CampaignCompleted = 54,
-    CampaignCancelled = 55,
-    InvalidCampaignStatus = 56,
+    InvalidBudget = 52,
+    InsufficientBudget = 53,
 }
 
 /// Type of pending change
@@ -489,6 +490,58 @@ pub struct TreasuryPolicy {
 pub struct WithdrawalPeriod {
     pub period_start: u64,
     pub amount_withdrawn: i128,
+}
+
+/// Buyback campaign status
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CampaignStatus {
+    Active,
+    Paused,
+    Completed,
+    Cancelled,
+}
+
+/// Buyback campaign configuration
+///
+/// Represents a token buyback campaign with budget and execution tracking.
+///
+/// # Fields
+/// * `id` - Unique campaign identifier
+/// * `token_index` - Index of the token being bought back
+/// * `creator` - Address that created the campaign
+/// * `budget` - Total budget allocated for buybacks
+/// * `spent` - Amount spent so far
+/// * `tokens_bought` - Number of tokens bought back
+/// * `execution_count` - Number of buyback executions
+/// * `status` - Current campaign status
+/// * `created_at` - Timestamp when campaign was created
+/// * `updated_at` - Timestamp of last update
+/// * `start_time` - When campaign becomes active
+/// * `end_time` - When campaign expires
+/// * `min_interval` - Minimum seconds between executions
+/// * `max_slippage_bps` - Maximum slippage in basis points (0-10000)
+/// * `source_token` - Token being spent (treasury token)
+/// * `target_token` - Token being bought back
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BuybackCampaign {
+    pub id: u64,
+    pub token_index: u32,
+    pub creator: Address,
+    pub budget: i128,
+    pub spent: i128,
+    pub tokens_bought: i128,
+    pub execution_count: u32,
+    pub status: CampaignStatus,
+    pub created_at: u64,
+    pub updated_at: u64,
+    pub start_time: u64,
+    pub end_time: u64,
+    pub min_interval: u64,
+    pub max_slippage_bps: u32,
+    pub source_token: Address,
+    pub target_token: Address,
 }
 
 #[cfg(test)]
