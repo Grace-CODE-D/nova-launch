@@ -1,5 +1,6 @@
 #![no_std]
 
+mod buyback;
 mod freeze_functions;
 mod governance;
 
@@ -29,6 +30,9 @@ mod validation;
 #[cfg(test)]
 mod governance_property_test;
 
+#[cfg(test)]
+mod buyback_integration_test;
+
 #[cfg(all(test, feature = "legacy-tests"))]
 mod stream_claim_differential_test;
 
@@ -44,8 +48,9 @@ mod stream_claim_differential_test;
 
 use soroban_sdk::{contract, contractimpl, symbol_short, Address, Bytes, BytesN, Env, String, Vec};
 use types::{
-    ContractMetadata, Error, FactoryState, PaginationCursor, StreamInfo, StreamPage, StreamParams,
-    TokenCreationParams, TokenInfo, TokenStats, Vault, VaultStatus,
+    BuybackCampaign, CampaignStatus, ContractMetadata, Error, FactoryState, PaginationCursor,
+    StreamInfo, StreamPage, StreamParams, TokenCreationParams, TokenInfo, TokenStats, Vault,
+    VaultStatus,
 };
 use crate::milestone_verification::MilestoneVerifier;
 
@@ -1897,6 +1902,58 @@ impl TokenFactory {
         approval_percent: u32,
     ) -> bool {
         governance::is_approval_met(yes_votes, total_votes, approval_percent)
+    }
+
+    /// Create a new buyback campaign
+    ///
+    /// Enables authorized governance actors to create buyback campaigns
+    /// with auditable event output.
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `creator` - Address creating the campaign (must be admin or token creator)
+    /// * `token_index` - Index of the token to buy back
+    /// * `budget` - Total budget allocated for the campaign
+    ///
+    /// # Returns
+    /// * `Ok(u64)` - The campaign ID if successful
+    /// * `Err(Error)` - Error if validation fails or unauthorized
+    ///
+    /// # Authorization
+    /// Requires the creator to be either:
+    /// - The factory admin
+    /// - The token creator
+    ///
+    /// # Events
+    /// Emits a versioned `cmp_cr_v1` event with campaign details
+    ///
+    /// # Errors
+    /// * `Error::Unauthorized` - Caller is not admin or token creator
+    /// * `Error::InvalidBudget` - Budget is zero or negative
+    /// * `Error::TokenNotFound` - Token index does not exist
+    pub fn create_buyback_campaign(
+        env: Env,
+        creator: Address,
+        token_index: u32,
+        budget: i128,
+    ) -> Result<u64, Error> {
+        buyback::create_buyback_campaign(&env, &creator, token_index, budget)
+    }
+
+    /// Get a buyback campaign by ID
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `campaign_id` - The campaign ID to retrieve
+    ///
+    /// # Returns
+    /// * `Ok(BuybackCampaign)` - The campaign if found
+    /// * `Err(Error::CampaignNotFound)` - If campaign doesn't exist
+    pub fn get_buyback_campaign(
+        env: Env,
+        campaign_id: u64,
+    ) -> Result<types::BuybackCampaign, Error> {
+        buyback::get_campaign(&env, campaign_id)
     }
 }
 
