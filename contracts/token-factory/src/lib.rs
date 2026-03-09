@@ -1514,6 +1514,8 @@ impl TokenFactory {
 mod gas_benchmark_comprehensive;
 #[cfg(test)]
 mod gas_regression_test;
+#[cfg(test)]
+mod gas_compute_thresholds;
 
 #[cfg(test)]
 // mod timelock_test;
