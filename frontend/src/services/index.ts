@@ -1,5 +1,5 @@
 export { LoggingService } from './logging';
-export { WalletService } from "./WalletService";
+export { WalletService } from "./wallet";
 export { IPFSService, ipfsService } from "./IPFSService";
 export {
   TransactionHistoryStorage,
