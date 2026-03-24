@@ -41,6 +41,8 @@ export interface TokenDeploymentParams {
   decimals: number;
   initialSupply: string;
   metadataUri?: string;
+  creatorAddress: string;
+  feePayment: bigint;
 }
 
 export interface TokenDeploymentResult {
@@ -382,14 +384,33 @@ export class StellarService {
     throw this.createError(ErrorCode.TIMEOUT_ERROR, 'Transaction confirmation timeout');
   }
 
+  /**
+   * Build the ScVal arguments for `create_token` in the exact order the contract expects:
+   * create_token(creator, name, symbol, decimals, initial_supply, metadata_uri, fee_payment)
+   */
+  private buildCreateTokenArgs(creatorAddress: string, params: TokenDeploymentParams, feePayment: bigint) {
+    const args = [
+      nativeToScVal(creatorAddress, { type: 'address' }),
+      nativeToScVal(params.name, { type: 'string' }),
+      nativeToScVal(params.symbol, { type: 'string' }),
+      nativeToScVal(params.decimals, { type: 'u32' }),
+      nativeToScVal(BigInt(params.initialSupply), { type: 'i128' }),
+      params.metadataUri
+        ? nativeToScVal(params.metadataUri, { type: 'string' })
+        : nativeToScVal(null, { type: 'option' }),
+      nativeToScVal(feePayment, { type: 'i128' }),
+    ];
+    return args;
+  }
+
   async deployToken(
-    account: TestAccount,
     params: TokenDeploymentParams
   ): Promise<TokenDeploymentResult> {
     try {
-      const sourceAccount = await this.server.getAccount(account.publicKey);
+      const { creatorAddress, feePayment } = params;
+      const sourceAccount = await this.server.getAccount(creatorAddress);
       const contract = new Contract(STELLAR_CONFIG.factoryContractId);
-      
+
       const tx = new TransactionBuilder(sourceAccount, {
         fee: BASE_FEE,
         networkPassphrase: this.networkPassphrase,
@@ -414,12 +435,12 @@ export class StellarService {
         .build();
 
       const prepared = await this.server.prepareTransaction(tx);
-      const keypair = Keypair.fromSecret(account.secretKey);
-      prepared.sign(keypair);
-      
-      const response = await this.server.sendTransaction(prepared);
+      const signedXdr = await this.signWithWallet(prepared.toXDR());
+      const signedTx = TransactionBuilder.fromXDR(signedXdr, this.networkPassphrase) as Transaction;
+
+      const response = await this.server.sendTransaction(signedTx);
       const result = await this.waitForTransaction(response.hash);
-      
+
       const tokenAddress = result.returnValue ? scValToNative(result.returnValue) : '';
 
       return {
