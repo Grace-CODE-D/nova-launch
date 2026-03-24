@@ -8,7 +8,8 @@ import {
     validateTokenParams,
 } from '../utils/validation';
 import { IPFSService } from '../services/IPFSService';
-import { StellarService, getDeploymentFeeBreakdown } from '../services/StellarService';
+import { StellarService } from '../services/stellar.service';
+import { getDeploymentFeeBreakdown } from '../utils/feeCalculation';
 import { analytics, AnalyticsEvent } from '../services/analytics';
 import { useAnalytics } from './useAnalytics';
 
@@ -118,9 +119,13 @@ export function useTokenDeploy(network: 'testnet' | 'mainnet', options: UseToken
 
         setStatus('deploying');
         try {
+            const feeBreakdown = getDeploymentFeeBreakdown(Boolean(metadataUri));
+            const feePayment = BigInt(Math.round(feeBreakdown.totalFee * 10_000_000));
             const result = await stellarService.deployToken({
                 ...params,
                 metadataUri,
+                creatorAddress: params.adminWallet,
+                feePayment,
             });
             try {
                 analytics.track(AnalyticsEvent.TOKEN_DEPLOYED, {
