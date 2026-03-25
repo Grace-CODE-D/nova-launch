@@ -36,8 +36,6 @@ export function TokenDeployForm({
 
     const { deploy, reset, status, statusMessage, isDeploying, error } =
         useTokenDeploy(wallet.network, { baseFee, metadataFee });
-    const { deploy, reset, status, statusMessage, isDeploying, error, getFeeBreakdown } =
-        useTokenDeploy(wallet.network);
     
     const { isPaused, loading: pauseLoading, error: pauseError, refresh: refreshPauseState } = 
         useFactoryState({ network: wallet.network, pollingInterval: 30000 });
