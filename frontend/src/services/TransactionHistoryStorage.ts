@@ -4,17 +4,25 @@ const STORAGE_KEY = "transaction_history";
 const CURRENT_VERSION = "v1";
 
 /**
+ * Extended TokenInfo with reconciliation metadata
+ */
+export interface StoredTokenInfo extends TokenInfo {
+  syncedWithBackend?: boolean;
+  lastSyncedAt?: number;
+}
+
+/**
  * Storage structure:
  * {
  *   "v1": {
- *     "GXXX...": [TokenInfo, TokenInfo, ...],
- *     "GYYY...": [TokenInfo, ...]
+ *     "GXXX...": [StoredTokenInfo, StoredTokenInfo, ...],
+ *     "GYYY...": [StoredTokenInfo, ...]
  *   }
  * }
  */
 interface StorageData {
   [version: string]: {
-    [walletAddress: string]: TokenInfo[];
+    [walletAddress: string]: StoredTokenInfo[];
   };
 }
 
@@ -169,13 +177,17 @@ export class TransactionHistoryStorage {
       return [];
     }
 
-    return versionedData[walletAddress] || [];
+    return (versionedData[walletAddress] || []).map(token => {
+      // Strip reconciliation metadata when returning
+      const { syncedWithBackend, lastSyncedAt, ...tokenInfo } = token as StoredTokenInfo;
+      return tokenInfo;
+    });
   }
 
   /**
-   * Add a new token to the history
+   * Add a new token to the history with optional sync metadata
    */
-  addToken(walletAddress: string, token: TokenInfo): void {
+  addToken(walletAddress: string, token: TokenInfo, syncedWithBackend = false): void {
     const data = this.loadData();
 
     if (!data[CURRENT_VERSION]) {
@@ -184,20 +196,74 @@ export class TransactionHistoryStorage {
 
     const walletTokens = data[CURRENT_VERSION][walletAddress] || [];
 
+    const storedToken: StoredTokenInfo = {
+      ...token,
+      syncedWithBackend,
+      lastSyncedAt: syncedWithBackend ? Date.now() : undefined,
+    };
+
     // Check if token already exists (by address)
     const existingIndex = walletTokens.findIndex(
       (t) => t.address === token.address,
     );
     if (existingIndex !== -1) {
-      // Update existing token
-      walletTokens[existingIndex] = token;
+      // Update existing token, preserving sync status if already synced
+      const existing = walletTokens[existingIndex];
+      walletTokens[existingIndex] = {
+        ...storedToken,
+        syncedWithBackend: syncedWithBackend || existing.syncedWithBackend,
+        lastSyncedAt: syncedWithBackend ? Date.now() : existing.lastSyncedAt,
+      };
     } else {
       // Add new token at the beginning (most recent first)
-      walletTokens.unshift(token);
+      walletTokens.unshift(storedToken);
     }
 
     data[CURRENT_VERSION][walletAddress] = walletTokens;
     this.saveData(data);
+  }
+
+  /**
+   * Mark a token as synced with backend
+   */
+  markTokenSynced(walletAddress: string, tokenAddress: string): void {
+    const data = this.loadData();
+
+    if (!data[CURRENT_VERSION] || !data[CURRENT_VERSION][walletAddress]) {
+      return;
+    }
+
+    const walletTokens = data[CURRENT_VERSION][walletAddress];
+    const tokenIndex = walletTokens.findIndex(t => t.address === tokenAddress);
+
+    if (tokenIndex !== -1) {
+      walletTokens[tokenIndex] = {
+        ...walletTokens[tokenIndex],
+        syncedWithBackend: true,
+        lastSyncedAt: Date.now(),
+      };
+      data[CURRENT_VERSION][walletAddress] = walletTokens;
+      this.saveData(data);
+    }
+  }
+
+  /**
+   * Get unsynced tokens (optimistic entries not yet confirmed by backend)
+   */
+  getUnsyncedTokens(walletAddress: string): TokenInfo[] {
+    const data = this.loadData();
+    const versionedData = data[CURRENT_VERSION];
+
+    if (!versionedData || !versionedData[walletAddress]) {
+      return [];
+    }
+
+    return versionedData[walletAddress]
+      .filter(token => !token.syncedWithBackend)
+      .map(token => {
+        const { syncedWithBackend, lastSyncedAt, ...tokenInfo } = token;
+        return tokenInfo;
+      });
   }
 
   /**

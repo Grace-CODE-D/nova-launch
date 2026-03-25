@@ -13,7 +13,10 @@ export const prisma =
         : ["error"],
     datasources: {
       db: {
-        url: process.env.DATABASE_URL,
+        // Allow local dev server boot even when .env is missing.
+        url:
+          process.env.DATABASE_URL ??
+          "postgresql://postgres:postgres@localhost:5432/postgres?schema=public",
       },
     },
   });

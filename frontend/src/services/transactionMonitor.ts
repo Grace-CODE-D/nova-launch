@@ -25,6 +25,7 @@ export interface MonitoringSession {
     endTime?: number;
     lastChecked?: number;
     attempts: number;
+    ledger?: number;
     error?: string;
 }
 
@@ -202,14 +203,88 @@ export class TransactionMonitor {
     }
 
     /**
-     * Check transaction status on Stellar network
-     * This should be implemented to call actual Stellar API
+     * Check transaction status on Stellar network using Soroban RPC
      */
     protected async checkTransactionStatus(
         transactionHash: string
     ): Promise<'pending' | 'success' | 'failed'> {
-        // This is a placeholder - should be implemented by subclass or injected
-        return 'pending';
+        try {
+            const response = await this.fetchTransactionFromRPC(transactionHash);
+            return this.mapRPCStatusToMonitorStatus(response);
+        } catch (error) {
+            // If transaction not found, it's still pending
+            if (error instanceof Error && error.message.includes('not found')) {
+                return 'pending';
+            }
+            throw error;
+        }
+    }
+
+    /**
+     * Fetch transaction from Soroban RPC
+     */
+    private async fetchTransactionFromRPC(hash: string): Promise<any> {
+        const rpcUrl = this.getRPCUrl();
+        
+        const response = await fetch(rpcUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'getTransaction',
+                params: [hash],
+            }),
+        });
+
+        if (!response.ok) {
+            throw new Error(`RPC request failed: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        
+        if (data.error) {
+            throw new Error(data.error.message || 'RPC error');
+        }
+
+        return data.result;
+    }
+
+    /**
+     * Map Soroban RPC status to monitor status
+     */
+    private mapRPCStatusToMonitorStatus(rpcResponse: any): 'pending' | 'success' | 'failed' {
+        if (!rpcResponse) {
+            return 'pending';
+        }
+
+        const status = rpcResponse.status;
+
+        switch (status) {
+            case 'SUCCESS':
+                return 'success';
+            case 'FAILED':
+                return 'failed';
+            case 'NOT_FOUND':
+                return 'pending';
+            default:
+                return 'pending';
+        }
+    }
+
+    /**
+     * Get RPC URL based on environment
+     */
+    private getRPCUrl(): string {
+        const network = import.meta.env.VITE_NETWORK || 'testnet';
+        
+        if (network === 'mainnet') {
+            return 'https://soroban-rpc.mainnet.stellar.gateway.fm';
+        }
+        
+        return 'https://soroban-testnet.stellar.org';
     }
 
     /**

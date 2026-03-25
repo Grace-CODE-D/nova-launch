@@ -35,6 +35,7 @@
 - [Smart Contracts](#-smart-contracts)
 - [Frontend Application](#-frontend-application)
 - [Testing](#-testing)
+- [CI/CD](#-cicd)
 - [Deployment](#-deployment)
 - [Configuration](#-configuration)
 - [API Reference](#-api-reference)
@@ -545,6 +546,19 @@ pub fn get_token_info(
 | 8 | `BurnNotEnabled` | Burn functionality not enabled |
 | 9 | `InvalidBurnAmount` | Burn amount is zero or negative |
 
+##### Vault Error Codes
+
+These codes are reserved for vault lifecycle failures and are guaranteed to remain stable for downstream clients.
+
+| Code | Error | Description |
+|------|-------|-------------|
+| 60 | `VaultNotFound` | Referenced vault does not exist |
+| 61 | `VaultLocked` | Unlock time or milestone has not been met |
+| 62 | `VaultAlreadyClaimed` | Vault funds have already been claimed |
+| 63 | `VaultCancelled` | Vault was cancelled and is immutable |
+| 64 | `InvalidVaultConfig` | Vault parameters failed validation |
+| 65 | `NothingToClaim` | No claimable balance remains (vaults/streams) |
+
 #### Events
 
 ##### `TokenBurned`
@@ -703,7 +717,24 @@ xlmToStroops(xlm: number | string): number
 
 ## 🧪 Testing
 
-### Running Tests
+### Quick Start
+
+Use the unified test runner for all test categories:
+
+```bash
+# Fast mode (2-5 min) - Local development
+./scripts/run-tests.sh -m fast
+
+# Full mode (10-15 min) - PR validation
+./scripts/run-tests.sh -m full
+
+# Nightly mode (30-60 min) - Comprehensive
+./scripts/run-tests.sh -m nightly
+```
+
+See [Test Runner Documentation](docs/TEST_RUNNER.md) for detailed usage.
+
+### Running Tests Manually
 
 ```bash
 # Frontend tests
@@ -718,30 +749,55 @@ cargo test              # Run all tests
 cargo test -- --nocapture  # Run with output
 ```
 
-### Test Structure
+### Test Categories
 
 #### Unit Tests
+Tests individual functions and modules in isolation.
 
-Located in `__tests__` directories:
-- Validation utilities
-- Formatting utilities
-- Component rendering
-- Hook behavior
-
-#### Property-Based Tests
-
-Using `fast-check` for frontend and `proptest` for contracts:
-- Fee calculation consistency
-- Token creation atomicity
-- Supply conservation
-- Admin-only operations
+```bash
+cargo test --lib --tests
+```
 
 #### Integration Tests
+Tests interactions between components.
 
-- Full deployment flow
-- Wallet connection
-- IPFS upload
-- Transaction monitoring
+```bash
+cargo test --test '*'
+```
+
+#### Property-Based Tests
+Randomized testing for governance invariants:
+- Monotonic vote totals
+- Single-vote-per-address
+- Execution preconditions
+- Terminal state permanence
+- Vote distribution consistency
+
+```bash
+cargo test --lib --profile ci
+```
+
+#### Benchmarks
+Performance testing (nightly mode only).
+
+```bash
+cargo bench --no-run
+```
+
+### Test Modes
+
+| Mode | Duration | Tests | Use Case |
+|------|----------|-------|----------|
+| **Fast** | 2-5 min | Unit + Integration | Local dev, pre-commit |
+| **Full** | 10-15 min | + Property tests | PR validation, CI |
+| **Nightly** | 30-60 min | + Benchmarks + WASM | Release validation |
+
+### CI Integration
+
+Tests run automatically on:
+- **Push**: Fast mode
+- **Pull Request**: Full mode
+- **Schedule**: Nightly mode (2 AM UTC)
 
 ### Test Coverage
 
@@ -755,6 +811,41 @@ npm run test:coverage
 # View report
 open coverage/index.html
 ```
+
+---
+
+## 🔄 CI/CD
+
+### Continuous Integration
+
+The project uses GitHub Actions for automated testing and validation. All checks must pass before code can be merged.
+
+#### CI Pipeline
+
+- **Rust Contract Tests**: Formatting, linting, tests, and WASM build
+- **Frontend Tests**: Linting, tests, and production build
+- **Security Audit**: Dependency vulnerability scanning
+- **Spec Validation**: Ensures all spec files are complete
+
+#### Running Checks Locally
+
+Before pushing code, run the local CI validation:
+
+```bash
+./scripts/ci-check.sh
+```
+
+This runs all CI checks locally to catch issues early.
+
+#### Setting Up Git Hooks
+
+Enable pre-commit hooks to catch issues before committing:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+For more details, see [CI/CD Guide](CI_CD_GUIDE.md).
 
 ---
 

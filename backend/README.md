@@ -69,6 +69,106 @@ npm test
 
 ## API Endpoints
 
+### Governance API
+
+Public endpoints for governance proposals and voting. No authentication required.
+
+#### GET /api/governance/proposals
+
+Returns all governance proposals with optional filters.
+
+**Query Parameters:**
+- `status` - Filter by status: `ACTIVE`, `PASSED`, `REJECTED`, `EXECUTED`, `CANCELLED`, `EXPIRED`
+- `proposalType` - Filter by type: `PARAMETER_CHANGE`, `ADMIN_TRANSFER`, `TREASURY_SPEND`, `CONTRACT_UPGRADE`, `CUSTOM`
+- `tokenId` - Filter by token ID
+- `proposer` - Filter by proposer address
+- `limit` - Results per page: 1-100 (default: `50`)
+- `offset` - Pagination offset (default: `0`)
+- `sortBy` - Sort field: `createdAt`, `startTime`, `endTime` (default: `createdAt`)
+- `sortOrder` - Sort order: `asc`, `desc` (default: `desc`)
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "proposals": [...],
+    "total": 45,
+    "limit": 50,
+    "offset": 0
+  }
+}
+```
+
+#### GET /api/governance/proposals/:proposalId
+
+Returns detailed proposal information with analytics.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "proposal": {...},
+    "analytics": {
+      "totalVotes": 150,
+      "votesFor": "750000",
+      "votesAgainst": "250000",
+      "participationRate": 75.5,
+      "uniqueVoters": 150
+    }
+  }
+}
+```
+
+#### GET /api/governance/proposals/:proposalId/votes
+
+Returns all votes for a specific proposal.
+
+**Query Parameters:**
+- `limit` - Results per page: 1-100 (default: `100`)
+- `offset` - Pagination offset (default: `0`)
+
+#### GET /api/governance/proposals/:proposalId/execution
+
+Returns execution status and history for a proposal.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "proposalId": 1,
+    "status": "EXECUTED",
+    "executedAt": "2024-01-09T00:00:00.000Z",
+    "executions": [...],
+    "isExecuted": true,
+    "canExecute": false
+  }
+}
+```
+
+#### GET /api/governance/stats
+
+Returns overall governance statistics.
+
+#### GET /api/governance/voters/:address
+
+Returns voting statistics for a specific address.
+
+**Features:**
+- ✅ Input validation with express-validator
+- ✅ Pagination support
+- ✅ Comprehensive error handling
+- ✅ OpenAPI documentation
+- ✅ Full test coverage
+
+**Documentation:**
+- [Full API Documentation](GOVERNANCE_API.md)
+- [Quick Reference](GOVERNANCE_API_QUICK_REF.md)
+
+---
+
 ### Token Leaderboard API
 
 Public endpoints for token rankings and leaderboards. No authentication required.

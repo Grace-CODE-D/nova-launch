@@ -316,7 +316,6 @@ proptest! {
         prop_assert!(sub_result.is_some());
         prop_assert!(mul_result.is_some());
     }
-
     
     /// Test negative one boundary
     #[test]

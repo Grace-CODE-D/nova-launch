@@ -4,18 +4,27 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import dotenv from "dotenv";
 import { corsOptions } from "./config/cors";
+import { validateEnv } from "./config/env";
+import { runStartupValidation } from "./config/startupValidation";
 import adminRoutes from "./routes/admin";
 import leaderboardRoutes from "./routes/leaderboard";
 import tokenRoutes from "./routes/tokens";
 import statsRoutes from "./routes/stats";
+import governanceRoutes from "./routes/governance";
+import campaignRoutes from "./routes/campaigns";
 import { Database } from "./config/database";
 import { successResponse, errorResponse } from "./utils/response";
 import { requestLoggingMiddleware } from "./middleware/request-logging.middleware";
+import stellarEventListener from "./services/stellarEventListener";
 
 dotenv.config();
 
+// Validate required environment variables before starting the server.
+// This will throw and exit if any required variable is missing or invalid.
+const env = validateEnv();
+
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = env.PORT;
 
 // Request logging middleware (first to capture all requests)
 app.use(requestLoggingMiddleware);
@@ -35,6 +44,8 @@ app.use("/api/admin", limiter);
 app.use("/api/leaderboard", limiter);
 app.use("/api/tokens", limiter);
 app.use("/api/stats", limiter);
+app.use("/api/governance", limiter);
+app.use("/api/campaigns", limiter);
 
 // Body parsing middleware
 app.use(express.json());
@@ -48,6 +59,8 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/leaderboard", leaderboardRoutes);
 app.use("/api/tokens", tokenRoutes);
 app.use("/api/stats", statsRoutes);
+app.use("/api/governance", governanceRoutes);
+app.use("/api/campaigns", campaignRoutes);
 
 // Health check
 app.get("/health", (req, res) => {
@@ -91,9 +104,14 @@ app.use((req, res) => {
   );
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`🚀 Admin API server running on port ${PORT}`);
   console.log(`📊 Environment: ${process.env.NODE_ENV || "development"}`);
+
+  // Start event listener only after server (and DB) are ready
+  if (process.env.ENABLE_EVENT_LISTENER === "true") {
+    await stellarEventListener.start();
+  }
 });
 
 export default app;

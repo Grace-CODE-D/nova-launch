@@ -1,37 +1,15 @@
-import { useState, useEffect, useCallback } from 'react';
 import { Button, SkeletonList } from '../UI';
 import { TokenCard } from './TokenCard';
 import { NoTokensEmptyState, NoWalletEmptyState } from '../UI';
-import type { TokenInfo, WalletState } from '../../types';
+import { useTransactionHistory } from '../../hooks/useTransactionHistory';
+import type { WalletState } from '../../types';
 
 interface TokenListProps {
   wallet: WalletState;
 }
 
 export function TokenList({ wallet }: TokenListProps) {
-  const [tokens, setTokens] = useState<TokenInfo[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  const loadTokens = useCallback(async () => {
-    if (!wallet.connected || !wallet.address) return;
-
-    setLoading(true);
-    try {
-      // Load from localStorage for now
-      const stored = localStorage.getItem(`tokens_${wallet.address}`);
-      if (stored) {
-        setTokens(JSON.parse(stored));
-      }
-    } catch (error) {
-      console.error('Failed to load tokens:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, [wallet.address, wallet.connected]);
-
-  useEffect(() => {
-    loadTokens();
-  }, [loadTokens]);
+  const { history, loading, error, isEmpty, refreshFromBackend, isRefreshing } = useTransactionHistory();
 
   if (!wallet.connected) {
     return <NoWalletEmptyState />;
@@ -48,7 +26,7 @@ export function TokenList({ wallet }: TokenListProps) {
     );
   }
 
-  if (tokens.length === 0) {
+  if (isEmpty) {
     return <NoTokensEmptyState />;
   }
 
@@ -56,20 +34,28 @@ export function TokenList({ wallet }: TokenListProps) {
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-bold text-gray-900">
-          Your Tokens ({tokens.length})
+          Your Tokens ({history.length})
         </h2>
         <Button
           variant="outline"
           size="sm"
-          onClick={loadTokens}
-          loading={loading}
+          onClick={refreshFromBackend}
+          loading={isRefreshing}
         >
           Refresh
         </Button>
       </div>
 
+      {error && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+          <p className="text-sm text-yellow-800">
+            {error} - Showing local data only
+          </p>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {tokens.map((token) => (
+        {history.map((token) => (
           <TokenCard
             key={token.address}
             token={token}
