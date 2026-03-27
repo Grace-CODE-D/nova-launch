@@ -158,6 +158,25 @@ export class TransactionMonitor {
     }
 
     /**
+     * Resume monitoring a transaction that was persisted before a page refresh.
+     * Unlike startMonitoring, this is a no-op if the hash is already being tracked,
+     * making it safe to call on every app boot for all persisted pending txs.
+     */
+    resumeMonitoring(
+        transactionHash: string,
+        onStatus?: StatusCallback,
+        onError?: ErrorCallback
+    ): void {
+        if (this.sessions.has(transactionHash)) {
+            // Already active — just attach new callbacks if provided
+            if (onStatus) this.onStatus(transactionHash, onStatus);
+            if (onError) this.onError(transactionHash, onError);
+            return;
+        }
+        this.startMonitoring(transactionHash, onStatus, onError);
+    }
+
+    /**
      * Poll transaction status
      */
     private async poll(transactionHash: string): Promise<void> {

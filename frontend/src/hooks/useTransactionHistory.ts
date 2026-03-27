@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useWallet } from './useWallet';
 import type { TokenInfo } from '../types';
 import { transactionHistoryStorage } from '../services/TransactionHistoryStorage';
+import type { PersistedPendingTx } from '../services/TransactionHistoryStorage';
 import {
   fetchTokenHistory,
   convertBackendToken,
@@ -70,6 +71,8 @@ interface UseTransactionHistoryReturn {
   /** Call after a tx is confirmed on-chain to start projection polling */
   watchProjection: (txHash: string, tokenAddress: string) => void;
   projectionStatus: ProjectionStatus;
+  /** Pending txs rehydrated from storage on mount (for resumed monitoring) */
+  rehydratedPendingTxs: PersistedPendingTx[];
 }
 
 const DEFAULT_PAGINATION: PaginationState = {
@@ -126,6 +129,9 @@ export const useTransactionHistory = (): UseTransactionHistoryReturn => {
   const [watchedTxHash, setWatchedTxHash] = useState<string | null>(null);
   const watchedTokenAddressRef = useRef<string | null>(null);
 
+  // Pending txs rehydrated from storage on mount
+  const [rehydratedPendingTxs, setRehydratedPendingTxs] = useState<PersistedPendingTx[]>([]);
+
   // Load local history immediately for optimistic UI
   useEffect(() => {
     if (!address) {
@@ -143,6 +149,16 @@ export const useTransactionHistory = (): UseTransactionHistoryReturn => {
     } finally {
       setLoading(false);
     }
+  }, [address]);
+
+  // Rehydrate persisted pending txs on mount so callers can resume monitoring
+  useEffect(() => {
+    if (!address) {
+      setRehydratedPendingTxs([]);
+      return;
+    }
+    const pending = transactionHistoryStorage.getPendingTxsForWallet(address);
+    setRehydratedPendingTxs(pending);
   }, [address]);
 
   // Fetch from backend on mount and when address/filters/page changes
@@ -297,6 +313,7 @@ export const useTransactionHistory = (): UseTransactionHistoryReturn => {
     search,
     watchProjection,
     projectionStatus,
+    rehydratedPendingTxs,
   };
 };
 

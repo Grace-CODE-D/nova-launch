@@ -1,7 +1,24 @@
 import type { TokenInfo } from "../types";
 
 const STORAGE_KEY = "transaction_history";
+const PENDING_TX_KEY = "pending_transactions";
 const CURRENT_VERSION = "v1";
+
+export type PendingTxType = "deploy" | "burn" | "campaign" | "governance";
+
+/**
+ * Minimal record persisted for an in-flight transaction so monitoring can
+ * be resumed after a page refresh.
+ */
+export interface PersistedPendingTx {
+  txHash: string;
+  type: PendingTxType;
+  walletAddress: string;
+  /** ISO timestamp of when the tx was submitted */
+  submittedAt: string;
+  /** Optional: token/campaign/proposal address associated with the tx */
+  entityAddress?: string;
+}
 
 /**
  * Extended TokenInfo with reconciliation metadata
@@ -333,6 +350,58 @@ export class TransactionHistoryStorage {
   hasWalletData(walletAddress: string): boolean {
     const tokens = this.getTokens(walletAddress);
     return tokens.length > 0;
+  }
+
+  // ── Pending transaction persistence ────────────────────────────────────────
+
+  /**
+   * Persist a pending (in-flight) transaction so it can be resumed after refresh.
+   */
+  savePendingTx(tx: PersistedPendingTx): void {
+    const all = this.loadPendingTxs();
+    // Deduplicate by hash
+    const filtered = all.filter((t) => t.txHash !== tx.txHash);
+    filtered.push(tx);
+    try {
+      localStorage.setItem(PENDING_TX_KEY, JSON.stringify(filtered));
+    } catch {
+      // Non-critical — silently ignore quota errors for pending tx store
+    }
+  }
+
+  /**
+   * Remove a pending transaction (call once it reaches a terminal state).
+   */
+  removePendingTx(txHash: string): void {
+    const all = this.loadPendingTxs();
+    const filtered = all.filter((t) => t.txHash !== txHash);
+    localStorage.setItem(PENDING_TX_KEY, JSON.stringify(filtered));
+  }
+
+  /**
+   * Return all persisted pending transactions.
+   */
+  getPendingTxs(): PersistedPendingTx[] {
+    return this.loadPendingTxs();
+  }
+
+  /**
+   * Return pending transactions for a specific wallet.
+   */
+  getPendingTxsForWallet(walletAddress: string): PersistedPendingTx[] {
+    return this.loadPendingTxs().filter(
+      (t) => t.walletAddress === walletAddress,
+    );
+  }
+
+  private loadPendingTxs(): PersistedPendingTx[] {
+    try {
+      const raw = localStorage.getItem(PENDING_TX_KEY);
+      if (!raw) return [];
+      return JSON.parse(raw) as PersistedPendingTx[];
+    } catch {
+      return [];
+    }
   }
 }
 
