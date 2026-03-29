@@ -1,0 +1,25 @@
+test: add stream timestamp validation property test (issue-744)
+
+Implement Property 78 to prove stream timestamps are validated and stored
+correctly across all lifecycle events (created, claimed, cancelled).
+
+- Run 100+ iterations per property using fast-check
+- Cover past, present, and future timestamps
+- Test edge cases: Unix epoch, year 9999, year 2038 boundary
+- Verify millisecond precision preservation
+- Ensure temporal ordering (claimedAt ≥ createdAt)
+- Document security considerations and invariants
+
+Test coverage:
+- P78-A: Past timestamps accepted and stored accurately
+- P78-B: Present timestamps accepted and stored accurately
+- P78-C: Future timestamps accepted and stored accurately
+- P78-D: Minimum valid timestamp (Unix epoch 0) accepted
+- P78-E: Maximum valid timestamp (year 9999) accepted
+- P78-F: Boundary timestamps handled correctly
+- P78-G: Zero timestamp accepted
+- P78-H: Negative timestamp behavior documented
+- P78-I: Millisecond precision preserved
+- P78-J: Temporal ordering enforced
+
+Closes issue-744
