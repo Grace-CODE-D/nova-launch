@@ -47,6 +47,9 @@ export const STELLAR_CONFIG = {
   ...NETWORK_CONFIGS[ENV.NETWORK],
 } as const;
 
+/** The active network as a plain string — useful for runtime mismatch checks. */
+export const ACTIVE_NETWORK: 'testnet' | 'mainnet' = ENV.NETWORK;
+
 /**
  * Returns the network config for the active network.
  * The optional `_network` parameter is accepted for backwards compatibility
