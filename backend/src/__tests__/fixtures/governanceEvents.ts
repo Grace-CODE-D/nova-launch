@@ -192,3 +192,16 @@ export const governanceEventsByType = {
   prop_cancel: [proposalCancelledEvent],
   prop_status: [proposalStatusChangedEvent],
 };
+
+/**
+ * Realistic governance lifecycle replay sequence:
+ * create → vote-for → vote-against → status-change → execute
+ * Ordered by ledger for deterministic replay.
+ */
+export const governanceLifecycleReplaySequence = [
+  proposalCreatedEvent,       // ledger 1000000
+  voteCastEventFor,           // ledger 1000100
+  voteCastEventAgainst,       // ledger 1000200
+  proposalExecutedEvent,      // ledger 1000300
+  proposalStatusChangedEvent, // ledger 1000500
+];

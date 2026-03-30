@@ -500,6 +500,25 @@ export class StellarEventListener {
   }
 
   /**
+   * Replay a recorded batch of Stellar events through the full ingestion pipeline.
+   * Intended for integration tests and offline replay tooling — not for production polling.
+   */
+  async replayBatch(events: StellarEvent[]): Promise<{ processed: number; errors: number }> {
+    let processed = 0;
+    let errors = 0;
+    for (const event of events) {
+      try {
+        await this.processEvent(event);
+        processed++;
+      } catch (err) {
+        errors++;
+        console.error(`replayBatch: error on event ${event.id}:`, err);
+      }
+    }
+    return { processed, errors };
+  }
+
+  /**
    * Delay helper
    */
   private delay(ms: number): Promise<void> {
