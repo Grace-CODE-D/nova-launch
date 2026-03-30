@@ -1,7 +1,10 @@
 #!/bin/bash
 
 # Contract Rollback Script
-# Rolls back to previous contract version
+# Rolls back to previous contract version.
+#
+# See docs/PRODUCTION_INTEGRATION_RUNBOOK.md — "Rollback" section for the
+# full post-rollback verification sequence.
 
 set -e
 

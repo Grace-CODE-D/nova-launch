@@ -312,6 +312,8 @@ soroban contract optimize \
 
 For detailed deployment instructions, see [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md).
 
+For the end-to-end production deployment and post-deploy verification runbook, see [docs/PRODUCTION_INTEGRATION_RUNBOOK.md](docs/PRODUCTION_INTEGRATION_RUNBOOK.md).
+
 ---
 
 ## 📁 Project Structure
