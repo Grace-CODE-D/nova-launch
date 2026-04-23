@@ -15,6 +15,7 @@ import campaignRoutes from "./routes/campaigns";
 import streamRoutes from "./routes/streams";
 import vaultRoutes from "./routes/vaults";
 import versionRoutes from "./routes/version";
+import graphqlRouter from "./graphql";
 import { Database } from "./config/database";
 import { successResponse, errorResponse } from "./utils/response";
 import { requestLoggingMiddleware } from "./middleware/request-logging.middleware";
@@ -70,6 +71,7 @@ app.use("/api/campaigns", campaignRoutes);
 app.use("/api/streams", streamRoutes);
 app.use("/api/vaults", vaultRoutes);
 app.use("/api/version", versionRoutes);
+app.use("/api/graphql", graphqlRouter);
 
 import { healthService } from "./lib/health/health.service";
 
