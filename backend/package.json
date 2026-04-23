@@ -16,6 +16,7 @@
     "test:security:events": "vitest run src/__tests__/security.event.tampering.test.ts",
     "test:security:dos": "vitest run src/__tests__/security.dos.test.ts",
     "test:security:coverage": "vitest run --coverage src/__tests__/security",
+    "test:mutation": "vitest run src/__tests__/mutation-testing.framework.test.ts",
     "lint": "eslint src --ext .ts,.tsx",
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx,json}\"",

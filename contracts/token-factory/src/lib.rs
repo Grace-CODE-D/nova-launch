@@ -2210,7 +2210,7 @@ mod gas_regression_test;
 mod gas_compute_thresholds;
 
 #[cfg(test)]
-// mod timelock_test;
+mod bench_test;
 
 #[cfg(test)]
 // mod pagination_integration_test;
@@ -2248,6 +2248,9 @@ mod accounting_property_test;
 
 #[cfg(test)]
 mod stream_status_transition_property_test;
+
+#[cfg(test)]
+mod stream_lifecycle_integration_test;
 
 #[cfg(test)]
 mod vault_claim_property_test;
