@@ -19,6 +19,7 @@ import { Database } from "./config/database";
 import { successResponse, errorResponse } from "./utils/response";
 import { requestLoggingMiddleware } from "./middleware/request-logging.middleware";
 import stellarEventListener from "./services/stellarEventListener";
+import websocketService from "./services/websocket";
 
 dotenv.config();
 
@@ -123,9 +124,12 @@ app.use((req, res) => {
   );
 });
 
-app.listen(PORT, async () => {
+const server = app.listen(PORT, async () => {
   console.log(`🚀 Admin API server running on port ${PORT}`);
   console.log(`📊 Environment: ${process.env.NODE_ENV || "development"}`);
+
+  // Attach WebSocket server for live event streaming
+  websocketService.attach(server);
 
   // Start event listener only after server (and DB) are ready
   if (process.env.ENABLE_EVENT_LISTENER === "true") {
