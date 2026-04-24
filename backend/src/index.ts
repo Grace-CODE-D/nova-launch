@@ -74,6 +74,7 @@ app.use("/api/version", versionRoutes);
 app.use("/api/graphql", graphqlRouter);
 
 import { healthService } from "./lib/health/health.service";
+import { isAppError, toAppError } from "./lib/errors";
 
 // Health check — liveness (is the process alive?)
 app.get("/health/live", (_req, res) => {
@@ -94,25 +95,22 @@ app.get("/health", async (_req, res) => {
   res.status(httpStatus).json(successResponse(result));
 });
 
-// Error handling middleware
+// Error handling middleware — uses AppError framework for typed, consistent responses
 app.use(
   (
-    err: any,
+    err: unknown,
     req: express.Request,
     res: express.Response,
-    next: express.NextFunction
+    _next: express.NextFunction
   ) => {
-    console.error("Error:", err);
-    res.status(err.status || 500).json(
-      errorResponse({
-        code: "INTERNAL_SERVER_ERROR",
-        message: err.message || "Internal server error",
-        details:
-          process.env.NODE_ENV === "development"
-            ? { stack: err.stack }
-            : undefined,
-      })
-    );
+    const appErr = toAppError(err);
+    const isDev = process.env.NODE_ENV === "development";
+
+    if (appErr.httpStatus >= 500) {
+      console.error("Error:", err);
+    }
+
+    res.status(appErr.httpStatus).json(appErr.toHttpResponse(isDev));
   }
 );
 
