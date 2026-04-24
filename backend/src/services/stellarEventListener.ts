@@ -17,12 +17,25 @@ import {
   sleep
 } from "../stellar-service-integration/rate-limiter";
 import { IntegrationMetrics } from "../monitoring/metrics/prometheus-config";
+import {
+  PROJECTION_LAG_THRESHOLDS,
+  determineThresholdStatus,
+  generateThresholdAlert,
+  LagWindow,
+  ProjectionLagMetrics,
+  ThresholdAlert,
+} from "../monitoring/metrics/projectionLagThresholds";
 
 const _env = validateEnv();
 const HORIZON_URL = _env.STELLAR_HORIZON_URL;
 const FACTORY_CONTRACT_ID = _env.FACTORY_CONTRACT_ID;
 
 const POLL_INTERVAL_MS = 5000; // Poll every 5 seconds
+
+// Global lag tracking windows
+const LAG_WINDOW_SIZE_MS = 60000; // 1 minute rolling window
+const globalLagWindow = new LagWindow(LAG_WINDOW_SIZE_MS);
+const eventKindLagWindows = new Map<string, LagWindow>();
 
 interface StellarEvent {
   type: string;
@@ -45,6 +58,9 @@ export class StellarEventListener {
   private tokenEventParser: TokenEventParser;
   private cursorStore: EventCursorStore;
   private streamEventParser: StreamEventParser;
+  private recentLagMetrics: ProjectionLagMetrics[] = [];
+  private lastAlertTime: Map<string, number> = new Map(); // Debounce alerts per event kind
+  private alertDebounceMs = 5000; // Don't alert more than once per 5s per event kind
 
   constructor() {
     this.prisma = new PrismaClient();
@@ -208,6 +224,12 @@ export class StellarEventListener {
    */
   private async processEvent(event: StellarEvent): Promise<void> {
     try {
+      // Calculate projection lag early - before any processing
+      const lagMetrics = this.calculateProjectionLag(event);
+      
+      // Record lag metrics
+      this.recordLagMetrics(lagMetrics);
+
       const normalized = decodeEvent(event);
 
       if (normalized.kind === 'unknown') {
@@ -496,6 +518,155 @@ export class StellarEventListener {
    */
   private async processBuybackEvent(event: StellarEvent): Promise<void> {
      // Placeholder for buyback processing logic
+  }
+
+  /**
+   * Calculate projection lag for an event
+   * 
+   * Lag = time_now - ledger_close_time
+   * 
+   * Context:
+   * - ledger_close_time is when the transaction was confirmed on-chain
+   * - Horizon typically has events 1-2 seconds after confirmation
+   * - Our processing should be <5 seconds in normal operation
+   * - 
+   * Algorithm:
+   * 1. Parse ledger_close_time from Stellar event
+   * 2. Calculate milliseconds elapsed since close time
+   * 3. Return measurement along with thresholds status
+   */
+  private calculateProjectionLag(event: StellarEvent): ProjectionLagMetrics {
+    const processedAt = new Date();
+    const ledgerCloseTime = new Date(event.ledger_close_time);
+    const currentLagMs = processedAt.getTime() - ledgerCloseTime.getTime();
+
+    const eventKind = kindForTopic(event.topic?.[0] ?? '') ?? 'unknown';
+
+    // Get or create lag window for this event kind
+    if (!eventKindLagWindows.has(eventKind)) {
+      eventKindLagWindows.set(eventKind, new LagWindow(LAG_WINDOW_SIZE_MS));
+    }
+    const kindWindow = eventKindLagWindows.get(eventKind)!;
+
+    // Record in both global and kind-specific windows
+    globalLagWindow.record(currentLagMs);
+    kindWindow.record(currentLagMs);
+
+    const thresholdStatus = determineThresholdStatus(currentLagMs, eventKind);
+
+    const metrics: ProjectionLagMetrics = {
+      currentLag: currentLagMs,
+      maxLagInWindow: kindWindow.getMaxLag(),
+      averageLagInWindow: kindWindow.getAverageLag(),
+      eventKind,
+      ledgerCloseTime,
+      processedAt,
+      thresholdStatus,
+    };
+
+    return metrics;
+  }
+
+  /**
+   * Record lag metrics locally and check for threshold violations
+   */
+  private recordLagMetrics(metrics: ProjectionLagMetrics): void {
+    // Keep recent metrics for querying
+    this.recentLagMetrics.push(metrics);
+    if (this.recentLagMetrics.length > 1000) {
+      this.recentLagMetrics.shift(); // Keep only recent measurements
+    }
+
+    // Log high lag events
+    if (metrics.thresholdStatus === 'critical') {
+      console.error(
+        `[CRITICAL LAG] ${metrics.eventKind}: ` +
+        `${metrics.currentLag}ms ` +
+        `(window: avg=${Math.round(metrics.averageLagInWindow)}ms, ` +
+        `max=${Math.round(metrics.maxLagInWindow)}ms)`
+      );
+    } else if (metrics.thresholdStatus === 'warning') {
+      console.warn(
+        `[WARNING LAG] ${metrics.eventKind}: ` +
+        `${metrics.currentLag}ms ` +
+        `(window: avg=${Math.round(metrics.averageLagInWindow)}ms, ` +
+        `max=${Math.round(metrics.maxLagInWindow)}ms)`
+      );
+    }
+
+    // Generate alert if threshold exceeded (with debouncing to reduce noise)
+    const alert = generateThresholdAlert(
+      metrics.currentLag,
+      metrics.eventKind,
+      metrics.ledgerCloseTime
+    );
+
+    if (alert) {
+      const now = Date.now();
+      const lastAlertTime = this.lastAlertTime.get(alert.eventKind) ?? 0;
+
+      if (now - lastAlertTime > this.alertDebounceMs) {
+        this.lastAlertTime.set(alert.eventKind, now);
+        console.error(`[PROJECTION LAG ALERT] ${alert.message}`);
+        // Could emit to monitoring service here
+      }
+    }
+  }
+
+  /**
+   * Get current lag metrics for a specific event kind
+   */
+  getLagMetricsForKind(eventKind: string): {
+    current?: number;
+    average: number;
+    max: number;
+    count: number;
+  } {
+    const window = eventKindLagWindows.get(eventKind);
+    if (!window) {
+      return { average: 0, max: 0, count: 0 };
+    }
+
+    const recent = this.recentLagMetrics.find((m) => m.eventKind === eventKind);
+    return {
+      current: recent?.currentLag,
+      average: window.getAverageLag(),
+      max: window.getMaxLag(),
+      count: window.getCount(),
+    };
+  }
+
+  /**
+   * Get global lag metrics across all event kinds
+   */
+  getGlobalLagMetrics(): {
+    average: number;
+    max: number;
+    count: number;
+    byKind: Record<string, { average: number; max: number }>;
+  } {
+    const byKind: Record<string, { average: number; max: number }> = {};
+
+    for (const [kind, window] of eventKindLagWindows) {
+      byKind[kind] = {
+        average: window.getAverageLag(),
+        max: window.getMaxLag(),
+      };
+    }
+
+    return {
+      average: globalLagWindow.getAverageLag(),
+      max: globalLagWindow.getMaxLag(),
+      count: globalLagWindow.getCount(),
+      byKind,
+    };
+  }
+
+  /**
+   * Get recent lag metrics (for testing / debugging)
+   */
+  getRecentLagMetrics(count: number = 10): ProjectionLagMetrics[] {
+    return this.recentLagMetrics.slice(-count);
   }
 
   /**
