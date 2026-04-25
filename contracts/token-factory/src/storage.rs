@@ -1388,3 +1388,72 @@ pub fn decrement_active_campaign_count(env: &Env) -> Result<u32, Error> {
     set_active_campaign_count(env, new_count);
     Ok(new_count)
 }
+
+// ============================================================
+// Storage Functions - Burn Auction
+// ============================================================
+
+/// Get a burn auction by ID
+pub fn get_auction(env: &Env, auction_id: u64) -> Option<crate::types::BurnAuction> {
+    env.storage()
+        .persistent()
+        .get(&crate::types::DataKey::BurnAuction(auction_id))
+}
+
+/// Store a burn auction
+pub fn set_auction(env: &Env, auction_id: u64, auction: &crate::types::BurnAuction) {
+    env.storage()
+        .persistent()
+        .set(&crate::types::DataKey::BurnAuction(auction_id), auction);
+}
+
+/// Get total number of auctions ever created
+pub fn get_auction_count(env: &Env) -> u64 {
+    env.storage()
+        .instance()
+        .get(&crate::types::DataKey::AuctionCount)
+        .unwrap_or(0)
+}
+
+/// Allocate the next auction ID (0-indexed) and increment the counter
+pub fn next_auction_id(env: &Env) -> Result<u64, Error> {
+    let id: u64 = env
+        .storage()
+        .instance()
+        .get(&crate::types::DataKey::AuctionCount)
+        .unwrap_or(0);
+    let next = id.checked_add(1).ok_or(Error::ArithmeticError)?;
+    env.storage()
+        .instance()
+        .set(&crate::types::DataKey::AuctionCount, &next);
+    Ok(id)
+}
+
+/// Get the number of currently open auctions
+pub fn get_open_auction_count(env: &Env) -> u64 {
+    env.storage()
+        .instance()
+        .get(&crate::types::DataKey::OpenAuctionCount)
+        .unwrap_or(0)
+}
+
+/// Increment the open auction counter
+pub fn increment_open_auction_count(env: &Env) -> Result<u64, Error> {
+    let count = get_open_auction_count(env)
+        .checked_add(1)
+        .ok_or(Error::ArithmeticError)?;
+    env.storage()
+        .instance()
+        .set(&crate::types::DataKey::OpenAuctionCount, &count);
+    Ok(count)
+}
+
+/// Decrement the open auction counter (saturates at 0)
+pub fn decrement_open_auction_count(env: &Env) -> Result<u64, Error> {
+    let count = get_open_auction_count(env);
+    let new_count = count.saturating_sub(1);
+    env.storage()
+        .instance()
+        .set(&crate::types::DataKey::OpenAuctionCount, &new_count);
+    Ok(new_count)
+}
