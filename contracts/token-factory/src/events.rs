@@ -830,3 +830,45 @@ pub fn emit_campaign_cancelled(
         (cancelled_by, budget_remaining),
     );
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// Staking Events
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Emit staking pool created event
+pub fn emit_staking_pool_created(
+    env: &Env,
+    pool_id: u64,
+    token_index: u32,
+    reward_token_index: u32,
+    reward_rate: i128,
+) {
+    env.events().publish(
+        (symbol_short!("stk_pl_cr"), pool_id),
+        (token_index, reward_token_index, reward_rate),
+    );
+}
+
+/// Emit staked event
+pub fn emit_staked(env: &Env, pool_id: u64, user: &Address, amount: i128) {
+    env.events().publish(
+        (symbol_short!("stk_dp"), pool_id),
+        (user, amount),
+    );
+}
+
+/// Emit unstaked event
+pub fn emit_unstaked(env: &Env, pool_id: u64, user: &Address, amount: i128) {
+    env.events().publish(
+        (symbol_short!("stk_wd"), pool_id),
+        (user, amount),
+    );
+}
+
+/// Emit reward claimed event
+pub fn emit_reward_claimed(env: &Env, pool_id: u64, user: &Address, amount: i128) {
+    env.events().publish(
+        (symbol_short!("stk_clm"), pool_id),
+        (user, amount),
+    );
+}

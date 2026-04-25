@@ -224,6 +224,29 @@ pub struct Vault {
     pub created_at: u64,
 }
 
+/// Staking Pool configuration and state
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StakingPool {
+    pub id: u64,
+    pub token_index: u32,
+    pub reward_token_index: u32,
+    pub reward_rate: i128,
+    pub total_staked: i128,
+    pub acc_reward_per_share: i128,
+    pub last_reward_time: u64,
+    pub active: bool,
+    pub creator: Address,
+}
+
+/// Individual user stake state
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StakeInfo {
+    pub amount: i128,
+    pub reward_debt: i128,
+}
+
 /// Compact read-only snapshot of a token's current state.
 /// Returned by get_token_stats().
 #[contracttype]
@@ -307,6 +330,10 @@ pub enum DataKey {
     CampaignByCreator(Address, u32),
     CreatorCampaignCount(Address),
     ActiveCampaigns,
+    StakingPool(u64),
+    StakingPoolCount,
+    NextStakingPoolId,
+    UserStake(u64, Address),
 }
 
 #[contracttype]
@@ -368,6 +395,11 @@ impl Error {
     pub const CampaignNotFound: Self = Self(51);
     pub const InvalidBudget: Self = Self(52);
     pub const InsufficientBudget: Self = Self(53);
+    pub const StakingPoolNotFound: Self = Self(54);
+    pub const InsufficientStake: Self = Self(55);
+    pub const RewardNotStarted: Self = Self(56);
+    pub const StakingNotActive: Self = Self(57);
+    pub const InvalidRewardRate: Self = Self(58);
 }
 
 impl From<Error> for soroban_sdk::Error {
