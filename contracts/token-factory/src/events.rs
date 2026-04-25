@@ -830,3 +830,52 @@ pub fn emit_campaign_cancelled(
         (cancelled_by, budget_remaining),
     );
 }
+/// Emit asset fractionalized event
+pub fn emit_asset_fractionalized(
+    env: &Env,
+    vault_id: u64,
+    asset_id: &BytesN<32>,
+    asset_contract: &Address,
+    owner: &Address,
+    fractional_token: &Address,
+    total_supply: i128,
+) {
+    let topics = (
+        symbol_short!("frac_v1"),
+        vault_id,
+        asset_id.clone(),
+        owner.clone(),
+    );
+    
+    let data = (
+        asset_contract.clone(),
+        fractional_token.clone(),
+        total_supply,
+    );
+    
+    env.events().publish(topics, data);
+}
+
+/// Emit asset redeemed event
+pub fn emit_asset_redeemed(
+    env: &Env,
+    vault_id: u64,
+    asset_id: &BytesN<32>,
+    asset_contract: &Address,
+    redeemer: &Address,
+    total_supply: i128,
+) {
+    let topics = (
+        symbol_short!("redeem_v1"),
+        vault_id,
+        asset_id.clone(),
+        redeemer.clone(),
+    );
+    
+    let data = (
+        asset_contract.clone(),
+        total_supply,
+    );
+    
+    env.events().publish(topics, data);
+}

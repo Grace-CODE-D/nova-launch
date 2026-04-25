@@ -1388,3 +1388,63 @@ pub fn decrement_active_campaign_count(env: &Env) -> Result<u32, Error> {
     set_active_campaign_count(env, new_count);
     Ok(new_count)
 }
+// ============================================================
+// Fractionalization Storage Functions
+// ============================================================
+
+/// Get fractional vault by ID
+pub fn get_fractional_vault(env: &Env, vault_id: u64) -> Option<crate::types::FractionalVault> {
+    env.storage().persistent().get(&crate::types::DataKey::FractionalVault(vault_id))
+}
+
+/// Set fractional vault
+pub fn set_fractional_vault(env: &Env, vault_id: u64, vault: &crate::types::FractionalVault) -> Result<(), Error> {
+    env.storage().persistent().set(&crate::types::DataKey::FractionalVault(vault_id), vault);
+    Ok(())
+}
+
+/// Get fractional vault count
+pub fn get_fractional_vault_count(env: &Env) -> u64 {
+    env.storage().instance().get(&crate::types::DataKey::FractionalVaultCount).unwrap_or(0)
+}
+
+/// Increment fractional vault count
+pub fn increment_fractional_vault_count(env: &Env) -> Result<u64, Error> {
+    let current = get_fractional_vault_count(env);
+    let new_count = current.checked_add(1).ok_or(Error::ArithmeticError)?;
+    env.storage().instance().set(&crate::types::DataKey::FractionalVaultCount, &new_count);
+    Ok(new_count)
+}
+
+/// Get owner's fractional vault count
+pub fn get_owner_fractional_vault_count(env: &Env, owner: &Address) -> u32 {
+    env.storage().persistent().get(&crate::types::DataKey::OwnerFractionalVaultCount(owner.clone())).unwrap_or(0)
+}
+
+/// Increment owner's fractional vault count
+pub fn increment_owner_fractional_vault_count(env: &Env, owner: &Address) -> Result<u32, Error> {
+    let current = get_owner_fractional_vault_count(env, owner);
+    let new_count = current.checked_add(1).ok_or(Error::ArithmeticError)?;
+    env.storage().persistent().set(&crate::types::DataKey::OwnerFractionalVaultCount(owner.clone()), &new_count);
+    Ok(new_count)
+}
+
+/// Set fractional vault by owner
+pub fn set_fractional_vault_by_owner(env: &Env, owner: &Address, index: u32, vault_id: u64) {
+    env.storage().persistent().set(&crate::types::DataKey::FractionalVaultByOwner(owner.clone(), index), &vault_id);
+}
+
+/// Get vault ID for an asset
+pub fn get_asset_vault(env: &Env, asset_id: &soroban_sdk::BytesN<32>) -> Option<u64> {
+    env.storage().persistent().get(&crate::types::DataKey::AssetToVault(asset_id.clone()))
+}
+
+/// Set asset to vault mapping
+pub fn set_asset_to_vault(env: &Env, asset_id: &soroban_sdk::BytesN<32>, vault_id: u64) {
+    env.storage().persistent().set(&crate::types::DataKey::AssetToVault(asset_id.clone()), &vault_id);
+}
+
+/// Remove asset to vault mapping
+pub fn remove_asset_to_vault(env: &Env, asset_id: &soroban_sdk::BytesN<32>) {
+    env.storage().persistent().remove(&crate::types::DataKey::AssetToVault(asset_id.clone()));
+}

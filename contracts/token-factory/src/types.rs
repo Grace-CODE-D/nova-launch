@@ -1112,3 +1112,55 @@ mod tests {
             assert_eq!(decoded, campaign);
         });
     }
+
+// ═══════════════════════════════════════════════════════════════════════
+// Token Fractionalization Types
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Fractionalized asset vault containing locked NFT-like asset
+///
+/// Represents a unique asset that has been locked in the contract
+/// and fractionalized into fungible tokens representing ownership shares.
+///
+/// # Fields
+/// * `id` - Unique vault identifier
+/// * `asset_id` - Unique identifier of the locked asset (e.g., NFT token ID)
+/// * `asset_contract` - Contract address of the original asset
+/// * `owner` - Original owner who fractionalized the asset
+/// * `fractional_token` - Address of the minted fractional tokens
+/// * `total_supply` - Total supply of fractional tokens minted
+/// * `created_at` - Timestamp when asset was fractionalized
+/// * `status` - Current status of the fractionalized asset
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FractionalVault {
+    pub id: u64,
+    pub asset_id: BytesN<32>,
+    pub asset_contract: Address,
+    pub owner: Address,
+    pub fractional_token: Address,
+    pub total_supply: i128,
+    pub created_at: u64,
+    pub status: FractionalStatus,
+}
+
+/// Status of a fractionalized asset
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FractionalStatus {
+    /// Asset is locked and fractional tokens are in circulation
+    Active,
+    /// Asset has been redeemed and returned to owner
+    Redeemed,
+}
+
+/// Parameters for fractionalizing an asset
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FractionalizationParams {
+    pub asset_id: BytesN<32>,
+    pub asset_contract: Address,
+    pub total_supply: i128,
+    pub token_name: String,
+    pub token_symbol: String,
+}
