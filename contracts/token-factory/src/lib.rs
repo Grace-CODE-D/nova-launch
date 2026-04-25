@@ -20,6 +20,7 @@ mod error_code_stability_test;
 mod mint;
 mod pagination;
 mod payload_validation;
+mod proposal_queue;
 mod proposal_state_machine;
 mod storage;
 mod stream_types;
@@ -2122,7 +2123,64 @@ impl TokenFactory {
     pub fn get_vote_counts(env: Env, proposal_id: u64) -> Option<(i128, i128, i128)> {
         timelock::get_vote_counts(&env, proposal_id)
     }
+
+    // ── Proposal Execution Queue with Priority Ordering (#864) ────────────
+
+    /// Add a queued proposal to the priority execution queue.
+    ///
+    /// The proposal must already be in `Queued` state (call `queue_proposal`
+    /// first).  Higher-priority proposals execute before lower-priority ones;
+    /// ties are broken by enqueue time (FIFO).
+    ///
+    /// # Arguments
+    /// * `proposal_id` – id of the proposal to enqueue
+    /// * `priority`    – `Low | Normal | High | Critical`
+    ///
+    /// # Returns
+    /// The slot index assigned to this entry.
+    pub fn enqueue_proposal_with_priority(
+        env: Env,
+        proposal_id: u64,
+        priority: types::ProposalPriority,
+    ) -> Result<u32, types::Error> {
+        proposal_queue::enqueue_proposal(&env, proposal_id, priority)
+    }
+
+    /// Return the next highest-priority proposal ready to execute (eta ≤ now),
+    /// without removing it from the queue.
+    pub fn peek_next_proposal(env: Env) -> Option<types::QueueEntry> {
+        proposal_queue::peek_next(&env)
+    }
+
+    /// Execute the next highest-priority proposal whose timelock has expired.
+    ///
+    /// Dequeues the entry and delegates to `execute_proposal`.
+    ///
+    /// # Returns
+    /// The `proposal_id` that was executed.
+    pub fn execute_next_queued_proposal(env: Env) -> Result<u64, types::Error> {
+        proposal_queue::execute_next_in_queue(&env)
+    }
+
+    /// Return the number of live entries currently in the priority queue.
+    pub fn get_queue_length(env: Env) -> u32 {
+        proposal_queue::queue_len(&env)
+    }
+
+    /// Remove a proposal from the priority queue without executing it.
+    ///
+    /// Used when a proposal is cancelled after being enqueued.
+    pub fn remove_proposal_from_queue(
+        env: Env,
+        proposal_id: u64,
+    ) -> Result<(), types::Error> {
+        proposal_queue::remove_from_queue(&env, proposal_id)
+    }
 }
+
+// Proposal execution queue tests (#864)
+#[cfg(test)]
+mod proposal_execution_queue_test;
 
 // Temporarily disabled - requires create_token implementation
 // #[cfg(test)]

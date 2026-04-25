@@ -669,6 +669,35 @@ pub fn emit_proposal_executed(
     );
 }
 
+/// Emit queue entry added event
+///
+/// Published when a proposal is added to the priority execution queue.
+pub fn emit_queue_entry_added(
+    env: &Env,
+    proposal_id: u64,
+    priority: crate::types::ProposalPriority,
+    eta: u64,
+) {
+    env.events().publish(
+        (symbol_short!("q_add"), proposal_id),
+        (priority as u32, eta),
+    );
+}
+
+/// Emit queue entry removed event
+///
+/// Published when a proposal is dequeued (executed or cancelled).
+pub fn emit_queue_entry_removed(
+    env: &Env,
+    proposal_id: u64,
+    priority: crate::types::ProposalPriority,
+) {
+    env.events().publish(
+        (symbol_short!("q_rem"), proposal_id),
+        (priority as u32,),
+    );
+}
+
 /// Emit vault created event
 ///
 /// Published when a new vault allocation is created

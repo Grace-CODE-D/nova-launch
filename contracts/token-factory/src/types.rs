@@ -261,6 +261,34 @@ pub struct FeeUpdate {
     pub metadata_fee: Option<i128>,
 }
 
+/// Priority level for a queued proposal.
+///
+/// Higher numeric value = higher priority.
+/// When multiple proposals are queued, `Critical` executes before `High`,
+/// `High` before `Normal`, and `Normal` before `Low`.
+/// Ties in priority are broken by `enqueued_at` (earlier wins).
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord)]
+pub enum ProposalPriority {
+    Low = 0,
+    Normal = 1,
+    High = 2,
+    Critical = 3,
+}
+
+/// An entry in the proposal execution queue.
+///
+/// Wraps a proposal id with its assigned priority and the timestamp at which
+/// it was enqueued (used as a tiebreaker: earlier enqueue wins).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct QueueEntry {
+    pub proposal_id: u64,
+    pub priority: ProposalPriority,
+    pub enqueued_at: u64,
+    pub eta: u64,
+}
+
 /// Storage keys for contract data
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -307,6 +335,10 @@ pub enum DataKey {
     CampaignByCreator(Address, u32),
     CreatorCampaignCount(Address),
     ActiveCampaigns,
+    /// Proposal execution queue entry at position `index`
+    QueueEntry(u32),
+    /// Total number of entries ever appended to the queue (monotonic counter)
+    QueueSize,
 }
 
 #[contracttype]
