@@ -13,6 +13,7 @@ mod differential_engine;
 mod event_versions;
 mod events;
 mod milestone_verification;
+mod oracle;
 #[cfg(all(test, feature = "legacy-tests"))]
 mod milestone_verification_test;
 #[cfg(all(test, feature = "legacy-tests"))]
@@ -63,6 +64,10 @@ mod vault_funding_overflow_property_test; // Property 73
 #[cfg(test)]
 mod vault_concurrent_claims_chaos_test;
 
+// Oracle integration tests
+#[cfg(test)]
+mod oracle_integration_test;
+
 // Temporarily disabled due to pre-existing compilation errors
 // #[cfg(test)]
 // mod two_step_admin_security_test;
@@ -75,9 +80,9 @@ mod vault_concurrent_claims_chaos_test;
 
 use soroban_sdk::{contract, contractimpl, symbol_short, Address, Bytes, BytesN, Env, String, Vec};
 use types::{
-    BuybackCampaign, CampaignStatus, ContractMetadata, Error, FactoryState, PaginationCursor,
-    StreamInfo, StreamPage, StreamParams, TokenCreationParams, TokenInfo, TokenStats, Vault,
-    VaultStatus,
+    BuybackCampaign, CampaignStatus, ContractMetadata, Error, FactoryState, OracleConfig,
+    PaginationCursor, PriceData, StreamInfo, StreamPage, StreamParams, TokenCreationParams,
+    TokenInfo, TokenStats, Vault, VaultStatus,
 };
 use crate::milestone_verification::MilestoneVerifier;
 
@@ -2121,6 +2126,91 @@ impl TokenFactory {
 
     pub fn get_vote_counts(env: Env, proposal_id: u64) -> Option<(i128, i128, i128)> {
         timelock::get_vote_counts(&env, proposal_id)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Oracle Functions — External Price Feeds
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// Configure the oracle parameters (admin only).
+    ///
+    /// # Arguments
+    /// * `admin` - Contract admin address (must authorize).
+    /// * `max_age_seconds` - Prices older than this are considered stale (must be > 0).
+    /// * `min_sources` - Minimum authorized sources required (informational).
+    ///
+    /// # Errors
+    /// * `Error::Unauthorized` - Caller is not the admin.
+    /// * `Error::InvalidParameters` - `max_age_seconds` is zero.
+    pub fn configure_oracle(
+        env: Env,
+        admin: Address,
+        max_age_seconds: u64,
+        min_sources: u32,
+    ) -> Result<(), Error> {
+        oracle::configure_oracle(&env, &admin, max_age_seconds, min_sources)
+    }
+
+    /// Authorize or deauthorize an oracle price source (admin only).
+    ///
+    /// # Arguments
+    /// * `admin` - Contract admin address (must authorize).
+    /// * `source` - Oracle source address to update.
+    /// * `authorized` - `true` to authorize, `false` to revoke.
+    ///
+    /// # Errors
+    /// * `Error::Unauthorized` - Caller is not the admin.
+    pub fn set_oracle_authorized(
+        env: Env,
+        admin: Address,
+        source: Address,
+        authorized: bool,
+    ) -> Result<(), Error> {
+        oracle::set_oracle_authorized(&env, &admin, &source, authorized)
+    }
+
+    /// Submit a new price observation (authorized oracle sources only).
+    ///
+    /// # Arguments
+    /// * `source` - Authorized oracle source address (must authorize).
+    /// * `price` - Raw price value (must be > 0).
+    /// * `decimals` - Decimal places for `price`.
+    ///
+    /// # Errors
+    /// * `Error::OracleUnauthorized` - `source` is not authorized.
+    /// * `Error::OraclePriceInvalid` - `price` is zero or negative.
+    pub fn submit_price(
+        env: Env,
+        source: Address,
+        price: i128,
+        decimals: u32,
+    ) -> Result<(), Error> {
+        oracle::submit_price(&env, &source, price, decimals)
+    }
+
+    /// Retrieve and validate the latest price from `source`.
+    ///
+    /// # Arguments
+    /// * `source` - Oracle source address whose price to read.
+    ///
+    /// # Returns
+    /// The latest `PriceData` if present and within the staleness window.
+    ///
+    /// # Errors
+    /// * `Error::OracleNotFound` - No price submitted by `source`.
+    /// * `Error::OraclePriceStale` - Price is older than `max_age_seconds`.
+    pub fn get_oracle_price(env: Env, source: Address) -> Result<PriceData, Error> {
+        oracle::get_price(&env, &source)
+    }
+
+    /// Return the current oracle configuration.
+    pub fn get_oracle_config(env: Env) -> OracleConfig {
+        oracle::get_config(&env)
+    }
+
+    /// Return whether `source` is an authorized oracle.
+    pub fn is_oracle_authorized(env: Env, source: Address) -> bool {
+        oracle::is_authorized(&env, &source)
     }
 }
 
