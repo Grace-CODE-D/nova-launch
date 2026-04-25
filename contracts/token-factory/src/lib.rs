@@ -683,6 +683,93 @@ impl TokenFactory {
         Ok(())
     }
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // Transfer Restriction Functions (Whitelist / Blacklist via Freeze)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// Enable or disable freeze (transfer restriction) capability for a token.
+    ///
+    /// When enabled, the token creator can freeze individual addresses, preventing
+    /// them from participating in transfers, burns, or mints (blacklist model).
+    /// When disabled, no new addresses can be frozen, but existing frozen state persists.
+    ///
+    /// # Arguments
+    /// * `token_address` - The token contract address
+    /// * `admin` - Token creator address (must authorize)
+    /// * `enabled` - `true` to enable freeze capability, `false` to disable
+    ///
+    /// # Errors
+    /// * `ContractPaused` - Contract is paused
+    /// * `TokenNotFound` - Token not found
+    /// * `Unauthorized` - Caller is not the token creator
+    pub fn set_freeze_enabled(
+        env: Env,
+        token_address: Address,
+        admin: Address,
+        enabled: bool,
+    ) -> Result<(), Error> {
+        freeze_functions::set_freeze_enabled(&env, &token_address, &admin, enabled)
+    }
+
+    /// Freeze (blacklist) an address for a specific token.
+    ///
+    /// A frozen address cannot send or receive tokens, burn, or mint.
+    /// Requires freeze to be enabled for the token.
+    ///
+    /// # Arguments
+    /// * `token_address` - The token contract address
+    /// * `admin` - Token creator address (must authorize)
+    /// * `address_to_freeze` - The address to blacklist
+    ///
+    /// # Errors
+    /// * `ContractPaused` - Contract is paused
+    /// * `TokenNotFound` - Token not found
+    /// * `Unauthorized` - Caller is not the token creator, or freeze not enabled
+    /// * `InvalidParameters` - Address is already frozen
+    pub fn freeze_address(
+        env: Env,
+        token_address: Address,
+        admin: Address,
+        address_to_freeze: Address,
+    ) -> Result<(), Error> {
+        freeze_functions::freeze_address(&env, &token_address, &admin, &address_to_freeze)
+    }
+
+    /// Unfreeze (remove from blacklist) an address for a specific token.
+    ///
+    /// Restores normal transfer capability for a previously frozen address.
+    ///
+    /// # Arguments
+    /// * `token_address` - The token contract address
+    /// * `admin` - Token creator address (must authorize)
+    /// * `address_to_unfreeze` - The address to remove from blacklist
+    ///
+    /// # Errors
+    /// * `ContractPaused` - Contract is paused
+    /// * `TokenNotFound` - Token not found
+    /// * `Unauthorized` - Caller is not the token creator, or freeze not enabled
+    /// * `InvalidParameters` - Address is not frozen
+    pub fn unfreeze_address(
+        env: Env,
+        token_address: Address,
+        admin: Address,
+        address_to_unfreeze: Address,
+    ) -> Result<(), Error> {
+        freeze_functions::unfreeze_address(&env, &token_address, &admin, &address_to_unfreeze)
+    }
+
+    /// Check whether an address is frozen (blacklisted) for a specific token.
+    ///
+    /// # Arguments
+    /// * `token_address` - The token contract address
+    /// * `address` - The address to check
+    ///
+    /// # Returns
+    /// `true` if the address is frozen, `false` otherwise
+    pub fn is_address_frozen(env: Env, token_address: Address, address: Address) -> bool {
+        freeze_functions::is_frozen(&env, &token_address, &address)
+    }
+
     /// Burn tokens from caller's own balance
     ///
     /// Allows a token holder to permanently destroy tokens from their
@@ -2237,6 +2324,12 @@ mod event_replay_test;
 
 #[cfg(test)]
 mod batch_token_creation_test;
+
+#[cfg(test)]
+mod supply_cap_test;
+
+#[cfg(test)]
+mod transfer_restrictions_test;
 
 #[cfg(test)]
 mod campaign_stateful_fuzz_test;

@@ -1230,15 +1230,33 @@ pub fn get_vote(env: &Env, proposal_id: u64, voter: &Address) -> Option<crate::t
 }
 
 // ============================================================
-// Storage Functions - Address Freezing
+// Storage Functions - Address Freezing (Transfer Restrictions)
 // ============================================================
+// Frozen addresses are blacklisted from token transfers, burns, and mints.
+// The freeze state is stored per (token_address, address) pair using
+// persistent storage so it survives ledger entry expiry.
 
-pub fn is_address_frozen(_env: &Env, _token_address: &Address, _address: &Address) -> bool {
-    false
+/// Returns true if `address` is frozen (blacklisted) for `token_address`.
+pub fn is_address_frozen(env: &Env, token_address: &Address, address: &Address) -> bool {
+    env.storage()
+        .persistent()
+        .get(&crate::types::DataKey::FrozenAddress(
+            token_address.clone(),
+            address.clone(),
+        ))
+        .unwrap_or(false)
 }
 
-pub fn set_address_frozen(_env: &Env, _token_address: &Address, _address: &Address, _frozen: bool) {
-    // Stub implementation
+/// Set the frozen (blacklist) state for `address` on `token_address`.
+/// `frozen = true` blacklists the address; `frozen = false` removes the restriction.
+pub fn set_address_frozen(env: &Env, token_address: &Address, address: &Address, frozen: bool) {
+    let key = crate::types::DataKey::FrozenAddress(token_address.clone(), address.clone());
+    if frozen {
+        env.storage().persistent().set(&key, &true);
+    } else {
+        // Remove the entry entirely when unfreezing to reclaim storage
+        env.storage().persistent().remove(&key);
+    }
 }
 
 // ── Governance storage functions ───────────────────────────
