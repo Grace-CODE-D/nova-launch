@@ -74,6 +74,7 @@ pub fn create_token_internal(
         initial_supply: params.initial_supply,
         max_supply: None,
         metadata_uri: params.metadata_uri.clone(),
+        metadata_version: 0,
         created_at: env.ledger().timestamp(),
         total_burned: 0,
         burn_count: 0,

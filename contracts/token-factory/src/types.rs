@@ -57,11 +57,10 @@ pub struct ContractMetadata {
 /// * `initial_supply` - Initial supply at token creation
 /// * `max_supply` - Optional maximum supply cap (None = unlimited)
 /// * `metadata_uri` - Optional IPFS URI for additional metadata
+/// * `metadata_version` - Current metadata version (0 = never set, 1+ = update count)
 /// * `created_at` - Unix timestamp of token creation
 /// * `total_burned` - Cumulative amount of tokens burned
 /// * `burn_count` - Number of burn operations performed
-/// * `metadata_uri` - Optional IPFS URI for additional metadata
-/// * `created_at` - Unix timestamp of token creation
 /// * `clawback_enabled` - Whether admin can burn from any address
 ///
 /// # Examples
@@ -83,10 +82,29 @@ pub struct TokenInfo {
     pub total_burned: i128,
     pub burn_count: u32,
     pub metadata_uri: Option<String>,
+    /// Current metadata version. 0 = metadata never set; increments with each update.
+    pub metadata_version: u32,
     pub created_at: u64,
     pub is_paused: bool,
     pub clawback_enabled: bool,
     pub freeze_enabled: bool,
+}
+
+/// A historical record of a single metadata update.
+///
+/// Stored per (token_index, version) so callers can reconstruct the full
+/// update history for any token.
+///
+/// # Fields
+/// * `uri` - The metadata URI that was set in this version
+/// * `updated_at` - Ledger timestamp when the update was applied
+/// * `updated_by` - Address that performed the update
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MetadataRecord {
+    pub uri: String,
+    pub updated_at: u64,
+    pub updated_by: Address,
 }
 
 #[contracttype]
@@ -307,6 +325,9 @@ pub enum DataKey {
     CampaignByCreator(Address, u32),
     CreatorCampaignCount(Address),
     ActiveCampaigns,
+    /// Stores a MetadataRecord for (token_index, version).
+    /// Version numbers start at 1 and increment with each update.
+    MetadataHistory(u32, u32),
 }
 
 #[contracttype]
@@ -368,6 +389,9 @@ impl Error {
     pub const CampaignNotFound: Self = Self(51);
     pub const InvalidBudget: Self = Self(52);
     pub const InsufficientBudget: Self = Self(53);
+    /// Returned when update_metadata is called on a token whose metadata has never
+    /// been set via set_token_metadata. Callers must set metadata first.
+    pub const MetadataNotSet: Self = Self(54);
 }
 
 impl From<Error> for soroban_sdk::Error {
