@@ -22,8 +22,9 @@ model Token {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  burnRecords BurnRecord[]
-  analytics   Analytics[]
+  burnRecords    BurnRecord[]
+  analytics      Analytics[]
+  dividendPools  DividendPool[]
 
   @@index([address])
   @@index([creator])
@@ -77,4 +78,78 @@ model Analytics {
   @@unique([tokenId, date])
   @@index([tokenId])
   @@index([date])
+}
+
+/// A dividend pool funded by a token creator/admin for distribution to holders.
+model DividendPool {
+  id              String              @id @default(uuid())
+  tokenId         String
+  /// Stellar address of the account that funded this pool
+  fundedBy        String
+  /// Total amount deposited into this pool (in token's smallest unit)
+  totalAmount     BigInt
+  /// Amount already claimed from this pool
+  claimedAmount   BigInt              @default(0)
+  /// Snapshot of total supply at pool creation (used for pro-rata calculation)
+  supplySnapshot  BigInt
+  /// Optional per-holder cap (0 = no cap)
+  perHolderCap    BigInt              @default(0)
+  /// ISO-8601 deadline after which unclaimed funds can be reclaimed
+  expiresAt       DateTime?
+  status          DividendPoolStatus  @default(ACTIVE)
+  txHash          String              @unique
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  token   Token           @relation(fields: [tokenId], references: [id])
+  claims  DividendClaim[]
+  snapshots HolderSnapshot[]
+
+  @@index([tokenId])
+  @@index([fundedBy])
+  @@index([status])
+  @@index([createdAt])
+}
+
+enum DividendPoolStatus {
+  ACTIVE
+  EXHAUSTED
+  EXPIRED
+  CANCELLED
+}
+
+/// A snapshot of a holder's balance at the time a dividend pool was created.
+model HolderSnapshot {
+  id        String   @id @default(uuid())
+  poolId    String
+  /// Stellar address of the token holder
+  holder    String
+  /// Token balance at snapshot time
+  balance   BigInt
+  /// Pre-computed claimable amount for this holder
+  claimable BigInt
+  createdAt DateTime @default(now())
+
+  pool DividendPool @relation(fields: [poolId], references: [id])
+
+  @@unique([poolId, holder])
+  @@index([poolId])
+  @@index([holder])
+}
+
+/// Records each individual dividend claim by a holder.
+model DividendClaim {
+  id        String      @id @default(uuid())
+  poolId    String
+  /// Stellar address of the claimant
+  claimant  String
+  amount    BigInt
+  txHash    String      @unique
+  claimedAt DateTime    @default(now())
+
+  pool DividendPool @relation(fields: [poolId], references: [id])
+
+  @@index([poolId])
+  @@index([claimant])
+  @@index([claimedAt])
 }

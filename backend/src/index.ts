@@ -7,6 +7,7 @@ import { corsOptions } from "./config/cors";
 import adminRoutes from "./routes/admin";
 import leaderboardRoutes from "./routes/leaderboard";
 import tokenRoutes from "./routes/tokens";
+import dividendRoutes from "./routes/dividends";
 import { Database } from "./config/database";
 import { successResponse, errorResponse } from "./utils/response";
 
@@ -29,6 +30,7 @@ const limiter = rateLimit({
 app.use("/api/admin", limiter);
 app.use("/api/leaderboard", limiter);
 app.use("/api/tokens", limiter);
+app.use("/api/dividends", limiter);
 
 // Body parsing middleware
 app.use(express.json());
@@ -41,6 +43,7 @@ Database.initialize();
 app.use("/api/admin", adminRoutes);
 app.use("/api/leaderboard", leaderboardRoutes);
 app.use("/api/tokens", tokenRoutes);
+app.use("/api/dividends", dividendRoutes);
 
 // Health check
 app.get("/health", (req, res) => {

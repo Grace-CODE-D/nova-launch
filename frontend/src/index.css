@@ -296,7 +296,6 @@ body {
   transform: translateY(-4px) scale(1.02);
 }
 
-/* ─── Accessibility ───────────────────────────────────────────────────────── */
 
 /* Focus visible styles */
 *:focus-visible {
@@ -321,7 +320,6 @@ body {
   top: 1rem;
 }
 
-/* ─── Responsive utilities ────────────────────────────────────────────────── */
 
 @media (max-width: 640px) {
   body {
@@ -329,15 +327,13 @@ body {
   }
 }
 
-/* ─── Print styles ────────────────────────────────────────────────────────── */
+
 
 @media print {
   .no-print {
     display: none !important;
   }
 }
-
-/* ─── Reduced motion ──────────────────────────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {
 
@@ -366,7 +362,6 @@ body {
   }
 }
 
-/* ─── Custom Utility Classes ──────────────────────────────────────────────── */
 
 .bg-primary {
   background-color: var(--color-primary);
