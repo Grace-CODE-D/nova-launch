@@ -81,7 +81,7 @@ mod stream_claim_differential_test;
 // #[cfg(test)]
 // mod governance_test;
 
-use soroban_sdk::{contract, contractimpl, symbol_short, Address, Bytes, BytesN, Env, String, Vec};
+use soroban_sdk::{contract, contractimpl, symbol_short, Address, Bytes, BytesN, Env, String, Symbol, Vec};
 use types::{
     AuctionStatus, BurnAuction, BuybackCampaign, CampaignStatus, ContractMetadata, Error,
     FactoryState, PaginationCursor, StreamInfo, StreamPage, StreamParams, TokenCreationParams,
@@ -2959,5 +2959,9 @@ mod metadata_update_test;
 
 // #[cfg(test)]
 // mod vault_fuzz_test;
+
 #[cfg(test)]
-mod fractionalization_test;
+mod bridge_test;
+
+#[cfg(test)]
+mod amm_test;
