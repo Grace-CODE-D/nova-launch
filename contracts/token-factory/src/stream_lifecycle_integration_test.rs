@@ -31,6 +31,7 @@ mod stream_lifecycle_integration_tests {
             total_burned: 0,
             burn_count: 0,
             metadata_uri: None,
+        metadata_version: 0,
             created_at: env.ledger().timestamp(),
             is_paused: false,
             clawback_enabled: false,

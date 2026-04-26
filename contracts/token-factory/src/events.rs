@@ -447,6 +447,36 @@ pub fn emit_metadata_set(
     );
 }
 
+/// Emit metadata updated event (v1)
+///
+/// **Schema Version**: 1
+/// **Event Name**: meta_upd
+///
+/// **Topics** (indexed):
+/// - Event name: "meta_upd"
+/// - token_address: Address - The token address
+///
+/// **Payload** (non-indexed):
+/// - admin: Address - The admin who updated the metadata
+/// - metadata_uri: String - The new metadata URI
+/// - version: u32 - The new metadata version number
+///
+/// **Schema Stability**: This schema is immutable. Any changes require a new version.
+///
+/// Emitted when token metadata is updated via `update_metadata`
+pub fn emit_metadata_updated(
+    env: &Env,
+    token_address: &Address,
+    admin: &Address,
+    metadata_uri: &String,
+    version: u32,
+) {
+    env.events().publish(
+        (symbol_short!("meta_upd"), token_address.clone()),
+        (admin.clone(), metadata_uri.clone(), version),
+    );
+}
+
 /// Emit batch streams created event
 ///
 /// Published when multiple streams are created in a batch

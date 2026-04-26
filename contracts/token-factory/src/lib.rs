@@ -969,17 +969,146 @@ impl TokenFactory {
             return Err(Error::MetadataAlreadySet);
         }
 
-        // Set metadata URI
+        // Set metadata URI and initialize version to 1
         token_info.metadata_uri = Some(metadata_uri.clone());
+        token_info.metadata_version = 1;
         storage::set_token_info(&env, token_index, &token_info);
 
         // Also update by address lookup
         storage::set_token_info_by_address(&env, &token_info.address, &token_info);
 
+        // Record initial history entry
+        let record = types::MetadataRecord {
+            uri: metadata_uri.clone(),
+            updated_at: env.ledger().timestamp(),
+            updated_by: admin.clone(),
+        };
+        storage::push_metadata_history(&env, token_index, &record)?;
+
         // Emit metadata set event
         events::emit_metadata_set(&env, &token_info.address, &admin, &metadata_uri);
 
         Ok(())
+    }
+
+    /// Update metadata URI for a token with version tracking
+    ///
+    /// Allows the token creator to update the IPFS metadata URI after it has
+    /// been initially set. Each update increments the version counter and
+    /// records a history entry so the full update trail is auditable on-chain.
+    ///
+    /// # Mutability Rules
+    /// - Metadata must have been set at least once via `set_token_metadata`
+    /// - Any number of subsequent updates are allowed by the creator
+    /// - Each update is permanently recorded in history storage
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `admin` - Token creator address (must authorize and match creator)
+    /// * `token_index` - Index of the token to update
+    /// * `new_metadata_uri` - New IPFS URI for token metadata (e.g., "ipfs://Qm...")
+    ///
+    /// # Returns
+    /// Returns `Ok(new_version)` — the incremented version number — on success
+    ///
+    /// # Errors
+    /// * `Error::ContractPaused` - Contract is currently paused
+    /// * `Error::TokenNotFound` - Token index is invalid
+    /// * `Error::Unauthorized` - Caller is not the token creator
+    /// * `Error::MetadataNotSet` - Metadata has never been set; call `set_token_metadata` first
+    ///
+    /// # Events
+    /// Emits `meta_upd` with token address, admin, new URI, and new version number
+    ///
+    /// # Examples
+    /// ```
+    /// // First set metadata
+    /// factory.set_token_metadata(&env, creator, 0, String::from_str(&env, "ipfs://QmV1"))?;
+    ///
+    /// // Later update it
+    /// let v = factory.update_metadata(&env, creator, 0, String::from_str(&env, "ipfs://QmV2"))?;
+    /// assert_eq!(v, 2);
+    /// ```
+    pub fn update_metadata(
+        env: Env,
+        admin: Address,
+        token_index: u32,
+        new_metadata_uri: String,
+    ) -> Result<u32, Error> {
+        // Check contract pause state before auth to fail fast
+        if storage::is_paused(&env) {
+            return Err(Error::ContractPaused);
+        }
+
+        admin.require_auth();
+
+        let mut token_info =
+            storage::get_token_info(&env, token_index).ok_or(Error::TokenNotFound)?;
+
+        // Only the token creator may update metadata
+        if token_info.creator != admin {
+            return Err(Error::Unauthorized);
+        }
+
+        // Metadata must have been set at least once
+        if token_info.metadata_uri.is_none() {
+            return Err(Error::MetadataNotSet);
+        }
+
+        // Compute new version before any mutation
+        let new_version = token_info
+            .metadata_version
+            .checked_add(1)
+            .ok_or(Error::ArithmeticError)?;
+
+        // Record history entry for the new version
+        let record = types::MetadataRecord {
+            uri: new_metadata_uri.clone(),
+            updated_at: env.ledger().timestamp(),
+            updated_by: admin.clone(),
+        };
+        // push_metadata_history reads current version from storage, so update
+        // token_info first then persist before calling it.
+        token_info.metadata_uri = Some(new_metadata_uri.clone());
+        token_info.metadata_version = new_version;
+        storage::set_token_info(&env, token_index, &token_info);
+        storage::set_token_info_by_address(&env, &token_info.address, &token_info);
+
+        // Persist history record (uses the already-updated version in storage)
+        env.storage().persistent().set(
+            &types::DataKey::MetadataHistory(token_index, new_version),
+            &record,
+        );
+
+        events::emit_metadata_updated(
+            &env,
+            &token_info.address,
+            &admin,
+            &new_metadata_uri,
+            new_version,
+        );
+
+        Ok(new_version)
+    }
+
+    /// Get a historical metadata record for a token
+    ///
+    /// Returns the MetadataRecord for the given version number.
+    /// Version 1 is the initial set; subsequent versions are updates.
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `token_index` - Index of the token
+    /// * `version` - Version number to retrieve (1-based)
+    ///
+    /// # Returns
+    /// Returns `Some(MetadataRecord)` if the version exists, `None` otherwise
+    pub fn get_metadata_history(
+        env: Env,
+        token_index: u32,
+        version: u32,
+    ) -> Option<types::MetadataRecord> {
+        storage::get_metadata_history(&env, token_index, version)
     }
 
     pub fn pause_token(env: Env, admin: Address, token_index: u32) -> Result<(), Error> {
@@ -2351,6 +2480,9 @@ mod vault_unlock_time_property_test;
 
 #[cfg(all(test, feature = "legacy-tests"))]
 mod vault_cancellation_test;
+
+#[cfg(test)]
+mod metadata_update_test;
 
 // Vault/Stream Security and Fuzz Tests
 // Temporarily disabled - requires fixing timelock/freeze dependencies
