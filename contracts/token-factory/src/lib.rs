@@ -7,6 +7,7 @@
 mod campaign_validation;
 mod freeze_functions;
 mod governance;
+mod token_recovery;
 
 mod burn;
 mod differential_engine;
@@ -2121,6 +2122,76 @@ impl TokenFactory {
 
     pub fn get_vote_counts(env: Env, proposal_id: u64) -> Option<(i128, i128, i128)> {
         timelock::get_vote_counts(&env, proposal_id)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Token Recovery Mechanism (Issue #881)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// Initiate a token recovery request for lost funds (admin only, step 1).
+    ///
+    /// Creates a pending recovery with a 48-hour timelock before execution.
+    ///
+    /// # Arguments
+    /// * `env`         – The contract environment.
+    /// * `admin`       – Admin address (must authorize).
+    /// * `token_index` – Index of the token to recover.
+    /// * `from`        – Source address holding the lost tokens.
+    /// * `to`          – Destination address for recovered tokens.
+    /// * `amount`      – Amount to recover (must be > 0).
+    ///
+    /// # Returns
+    /// The `request_id` of the newly created recovery request.
+    pub fn initiate_token_recovery(
+        env: Env,
+        admin: Address,
+        token_index: u32,
+        from: Address,
+        to: Address,
+        amount: i128,
+    ) -> Result<u64, Error> {
+        token_recovery::initiate_recovery(&env, &admin, token_index, &from, &to, amount)
+    }
+
+    /// Execute a pending recovery request after the timelock has expired (admin only, step 2).
+    ///
+    /// # Arguments
+    /// * `env`        – The contract environment.
+    /// * `admin`      – Admin address (must authorize).
+    /// * `request_id` – ID of the pending recovery request.
+    pub fn execute_token_recovery(
+        env: Env,
+        admin: Address,
+        request_id: u64,
+    ) -> Result<(), Error> {
+        token_recovery::execute_recovery(&env, &admin, request_id)
+    }
+
+    /// Cancel a pending recovery request (admin only).
+    ///
+    /// # Arguments
+    /// * `env`        – The contract environment.
+    /// * `admin`      – Admin address (must authorize).
+    /// * `request_id` – ID of the pending recovery request.
+    pub fn cancel_token_recovery(
+        env: Env,
+        admin: Address,
+        request_id: u64,
+    ) -> Result<(), Error> {
+        token_recovery::cancel_recovery(&env, &admin, request_id)
+    }
+
+    /// Retrieve a recovery request by ID.
+    pub fn get_token_recovery_request(
+        env: Env,
+        request_id: u64,
+    ) -> Option<token_recovery::RecoveryRequest> {
+        token_recovery::get_recovery_request(&env, request_id)
+    }
+
+    /// Return the total number of recovery requests initiated.
+    pub fn get_token_recovery_count(env: Env) -> u64 {
+        token_recovery::get_recovery_request_count(&env)
     }
 }
 
