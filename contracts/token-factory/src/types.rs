@@ -307,6 +307,9 @@ pub enum DataKey {
     CampaignByCreator(Address, u32),
     CreatorCampaignCount(Address),
     ActiveCampaigns,
+    /// Frozen status for a specific (token, address) pair.
+    /// Value: bool — true = frozen (blacklisted), false = not frozen.
+    FrozenAddress(Address, Address),
 }
 
 #[contracttype]
