@@ -422,6 +422,50 @@ pub fn emit_governance_updated(env: &Env, quorum_percent: u32, approval_percent:
     );
 }
 
+/// Emit token paused event (v1)
+///
+/// **Schema Version**: 1
+/// **Event Name**: tok_paus
+///
+/// **Topics** (indexed):
+/// - Event name: "tok_paus"
+/// - token_index: u32 - The token index
+///
+/// **Payload** (non-indexed):
+/// - admin: Address - The admin who paused the token
+///
+/// **Schema Stability**: This schema is immutable. Any changes require a new version.
+///
+/// Emitted when a specific token is paused via `pause_token`
+pub fn emit_token_paused(env: &Env, token_index: u32, admin: &Address) {
+    env.events().publish(
+        (symbol_short!("tok_paus"), token_index),
+        (admin,),
+    );
+}
+
+/// Emit token unpaused event (v1)
+///
+/// **Schema Version**: 1
+/// **Event Name**: tok_unpaus
+///
+/// **Topics** (indexed):
+/// - Event name: "tok_unpaus"
+/// - token_index: u32 - The token index
+///
+/// **Payload** (non-indexed):
+/// - admin: Address - The admin who unpaused the token
+///
+/// **Schema Stability**: This schema is immutable. Any changes require a new version.
+///
+/// Emitted when a specific token is unpaused via `unpause_token`
+pub fn emit_token_unpaused(env: &Env, token_index: u32, admin: &Address) {
+    env.events().publish(
+        (symbol_short!("tok_unpas"), token_index),
+        (admin,),
+    );
+}
+
 /// Emit metadata set event
 ///
 /// **Event Name**: meta_set

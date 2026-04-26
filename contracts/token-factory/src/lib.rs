@@ -934,13 +934,69 @@ impl TokenFactory {
     /// let result = factory.set_metadata(&env, 0, creator, new_uri);
     /// assert_eq!(result, Err(Error::MetadataAlreadySet));
     /// ```
-    pub fn set_metadata(
+    pub fn batch_create_tokens(
         env: Env,
         creator: Address,
         tokens: Vec<TokenCreationParams>,
         total_fee_payment: i128,
     ) -> Result<Vec<Address>, Error> {
         token_creation::batch_create_tokens(&env, creator, tokens, total_fee_payment)
+    }
+
+    /// Set metadata URI for a token by index (creator-only convenience function)
+    ///
+    /// Looks up the token creator from storage and sets the metadata URI.
+    /// Can only be called once per token — metadata is immutable after being set.
+    /// Blocked when the token is paused.
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `token_index` - Index of the token
+    /// * `metadata_uri` - IPFS URI to set (e.g., "ipfs://Qm...")
+    ///
+    /// # Returns
+    /// Returns `Ok(())` on success
+    ///
+    /// # Errors
+    /// * `Error::TokenNotFound` - Token index does not exist
+    /// * `Error::TokenPaused` - Token is currently paused
+    /// * `Error::MetadataAlreadySet` - Metadata already set for this token
+    pub fn set_metadata(
+        env: Env,
+        token_index: u32,
+        metadata_uri: String,
+    ) -> Result<(), Error> {
+        let token_info =
+            storage::get_token_info(&env, token_index).ok_or(Error::TokenNotFound)?;
+        let creator = token_info.creator.clone();
+        creator.require_auth();
+
+        if storage::is_token_paused(&env, token_index) {
+            return Err(Error::TokenPaused);
+        }
+
+        if token_info.metadata_uri.is_some() {
+            return Err(Error::MetadataAlreadySet);
+        }
+
+        let mut info = token_info;
+        info.metadata_uri = Some(metadata_uri.clone());
+        info.metadata_version = 1;
+        storage::set_token_info(&env, token_index, &info);
+        storage::set_token_info_by_address(&env, &info.address, &info);
+
+        let record = types::MetadataRecord {
+            uri: metadata_uri.clone(),
+            updated_at: env.ledger().timestamp(),
+            updated_by: creator.clone(),
+        };
+        env.storage().persistent().set(
+            &types::DataKey::MetadataHistory(token_index, 1),
+            &record,
+        );
+
+        events::emit_metadata_set(&env, &info.address, &creator, &metadata_uri);
+        Ok(())
     }
 
     /// Set metadata for a token
@@ -962,6 +1018,11 @@ impl TokenFactory {
         // Verify admin is the token creator
         if token_info.creator != admin {
             return Err(Error::Unauthorized);
+        }
+
+        // Reject if the token is individually paused
+        if storage::is_token_paused(&env, token_index) {
+            return Err(Error::TokenPaused);
         }
 
         // Enforce immutability: metadata can only be set once
@@ -1050,6 +1111,11 @@ impl TokenFactory {
             return Err(Error::Unauthorized);
         }
 
+        // Reject if the token is individually paused
+        if storage::is_token_paused(&env, token_index) {
+            return Err(Error::TokenPaused);
+        }
+
         // Metadata must have been set at least once
         if token_info.metadata_uri.is_none() {
             return Err(Error::MetadataNotSet);
@@ -1111,6 +1177,72 @@ impl TokenFactory {
         storage::get_metadata_history(&env, token_index, version)
     }
 
+    /// Create a single token (convenience wrapper)
+    ///
+    /// Deploys a new token with the given parameters and mints the initial supply
+    /// to the creator. This is a single-token shorthand for `set_metadata` (batch).
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `creator` - Address creating the token (must authorize)
+    /// * `name` - Token name (1–32 chars)
+    /// * `symbol` - Token symbol (1–12 chars)
+    /// * `decimals` - Decimal places (0–18)
+    /// * `initial_supply` - Initial supply (must be > 0)
+    /// * `metadata_uri` - Optional IPFS URI
+    /// * `fee_payment` - Fee in stroops (must be >= base_fee [+ metadata_fee])
+    ///
+    /// # Returns
+    /// Returns the new token's contract address
+    ///
+    /// # Errors
+    /// * `Error::ContractPaused` - Contract is paused
+    /// * `Error::InsufficientFee` - Fee too low
+    /// * `Error::InvalidTokenParams` - Invalid name/symbol/decimals/supply
+    pub fn create_token(
+        env: Env,
+        creator: Address,
+        name: String,
+        symbol: String,
+        decimals: u32,
+        initial_supply: i128,
+        metadata_uri: Option<String>,
+        fee_payment: i128,
+    ) -> Result<Address, Error> {
+        token_creation::create_token(
+            &env,
+            creator,
+            name,
+            symbol,
+            decimals,
+            initial_supply,
+            metadata_uri,
+            fee_payment,
+        )
+    }
+
+    /// Pause a specific token (admin only)
+    ///
+    /// Halts all mutable operations on the token — minting, burning, and
+    /// metadata updates — until `unpause_token` is called. Read-only queries
+    /// (`get_token_info`, `get_token_stats`) remain available.
+    ///
+    /// This is an emergency control intended for incident response.
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `admin` - Factory admin address (must authorize)
+    /// * `token_index` - Index of the token to pause
+    ///
+    /// # Returns
+    /// Returns `Ok(())` on success
+    ///
+    /// # Errors
+    /// * `Error::Unauthorized` - Caller is not the factory admin
+    /// * `Error::TokenNotFound` - Token index does not exist
+    ///
+    /// # Events
+    /// Emits `tok_paus` with token_index and admin address
     pub fn pause_token(env: Env, admin: Address, token_index: u32) -> Result<(), Error> {
         admin.require_auth();
         if admin != storage::get_admin(&env) {
@@ -1118,9 +1250,28 @@ impl TokenFactory {
         }
         storage::get_token_info(&env, token_index).ok_or(Error::TokenNotFound)?;
         storage::set_token_paused(&env, token_index, true);
+        events::emit_token_paused(&env, token_index, &admin);
         Ok(())
     }
 
+    /// Unpause a specific token (admin only)
+    ///
+    /// Resumes all mutable operations on the token after an emergency pause.
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `admin` - Factory admin address (must authorize)
+    /// * `token_index` - Index of the token to unpause
+    ///
+    /// # Returns
+    /// Returns `Ok(())` on success
+    ///
+    /// # Errors
+    /// * `Error::Unauthorized` - Caller is not the factory admin
+    /// * `Error::TokenNotFound` - Token index does not exist
+    ///
+    /// # Events
+    /// Emits `tok_unpas` with token_index and admin address
     pub fn unpause_token(env: Env, admin: Address, token_index: u32) -> Result<(), Error> {
         admin.require_auth();
         if admin != storage::get_admin(&env) {
@@ -1128,9 +1279,18 @@ impl TokenFactory {
         }
         storage::get_token_info(&env, token_index).ok_or(Error::TokenNotFound)?;
         storage::set_token_paused(&env, token_index, false);
+        events::emit_token_unpaused(&env, token_index, &admin);
         Ok(())
     }
 
+    /// Check whether a specific token is currently paused
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `token_index` - Index of the token to check
+    ///
+    /// # Returns
+    /// Returns `true` if the token is paused, `false` otherwise
     pub fn is_token_paused(env: Env, token_index: u32) -> bool {
         storage::is_token_paused(&env, token_index)
     }
@@ -2410,7 +2570,7 @@ impl TokenFactory {
 // mod fuzz_test;
 
 #[cfg(test)]
-// mod token_pause_test;
+mod token_pause_test;
 
 
 #[cfg(test)]

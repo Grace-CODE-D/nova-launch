@@ -432,7 +432,7 @@ fn soak_test_mixed_operations() {
                 // Set metadata (once per token)
                 if !metadata_set.contains_key(&token_index) {
                     let uri = String::from_str(&env, &format!("ipfs://token{}", token_index));
-                    client.set_metadata(&token_index, creator, &uri);
+                    client.set_metadata(&token_index, &uri);
                     metadata_set.insert(token_index, Some(uri));
                 }
             }

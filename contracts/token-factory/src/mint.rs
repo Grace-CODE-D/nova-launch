@@ -99,6 +99,11 @@ pub fn mint(env: &Env, token_index: u32, to: &Address, amount: i128) -> Result<(
         return Err(Error::InvalidAmount);
     }
 
+    // Reject if the token is individually paused
+    if storage::is_token_paused(env, token_index) {
+        return Err(Error::TokenPaused);
+    }
+
     // Get token info
     let mut token_info = storage::get_token_info(env, token_index).ok_or(Error::TokenNotFound)?;
 
