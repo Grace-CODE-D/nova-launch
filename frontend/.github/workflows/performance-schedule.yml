@@ -41,6 +41,16 @@ jobs:
           lhci autorun
         env:
           LHCI_GITHUB_APP_TOKEN: ${{ secrets.LHCI_GITHUB_APP_TOKEN }}
+
+      - name: Publish performance metrics
+        working-directory: frontend
+        run: npm run monitor
+        env:
+          NEW_RELIC_ACCOUNT_ID: ${{ secrets.NEW_RELIC_ACCOUNT_ID }}
+          NEW_RELIC_INSERT_KEY: ${{ secrets.NEW_RELIC_INSERT_KEY }}
+          NEW_RELIC_INSIGHTS_URL: ${{ secrets.NEW_RELIC_INSIGHTS_URL }}
+          NEW_RELIC_APP_NAME: nova-launch-frontend
+          NEW_RELIC_SOURCE: github-actions-scheduled-performance
       
       - name: Upload results
         uses: actions/upload-artifact@v4

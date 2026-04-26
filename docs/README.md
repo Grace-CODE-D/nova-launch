@@ -3,6 +3,7 @@
 ## Token Burn Documentation
 
 ### Primary Specification
+
 - **[token-burn-spec.md](./token-burn-spec.md)** (26KB, 952 lines)
   - Comprehensive architecture and specification
   - Function signatures with full documentation
@@ -15,12 +16,18 @@
   - Implementation checklist
 
 ### Supporting Documents
+
 - **[BURN_QUICK_REF.md](./BURN_QUICK_REF.md)** (1.9KB)
   - Quick reference for developers
   - Function signatures at a glance
   - Error codes table
   - Gas costs comparison
   - Example usage
+
+- **[PERFORMANCE_MONITORING_NEW_RELIC.md](./PERFORMANCE_MONITORING_NEW_RELIC.md)**
+  - Frontend performance monitoring guide
+  - New Relic event publishing setup
+  - Operational and security notes
 
 - **[BURN_SPEC_COMPLETION.md](./BURN_SPEC_COMPLETION.md)** (6.2KB)
   - Completion report for issue #150
@@ -29,6 +36,7 @@
   - Implementation status
 
 ### Related Documentation (Root Level)
+
 - **BURN_FEATURE_DOCS.md** - User-facing feature documentation
 - **BURN_SECURITY.md** - Detailed security analysis
 - **BURN_MIGRATION_GUIDE.md** - Migration instructions
@@ -40,16 +48,19 @@
 ## Quick Links
 
 ### For Developers
+
 1. Start with [BURN_QUICK_REF.md](./BURN_QUICK_REF.md)
 2. Read full spec: [token-burn-spec.md](./token-burn-spec.md)
 3. Check implementation: `../contracts/token-factory/src/lib.rs`
 
 ### For Reviewers
+
 1. Review completion: [BURN_SPEC_COMPLETION.md](./BURN_SPEC_COMPLETION.md)
 2. Verify spec: [token-burn-spec.md](./token-burn-spec.md)
 3. Check tests: `../contracts/token-factory/src/test.rs`
 
 ### For Users
+
 1. Feature guide: `../BURN_FEATURE_DOCS.md`
 2. Security info: `../BURN_SECURITY.md`
 3. Migration: `../BURN_MIGRATION_GUIDE.md`

@@ -27,6 +27,7 @@
     "test:performance": "vitest run src/test/performance --config vitest.config.ts",
     "test:performance:watch": "vitest src/test/performance --config vitest.config.ts",
     "analyze": "npm run build:analyze && node scripts/analyze-bundle.js",
+    "monitor": "node scripts/performance-monitor.js",
     "perf:monitor": "node scripts/performance-monitor.js",
     "lighthouse": "lhci autorun"
   },
