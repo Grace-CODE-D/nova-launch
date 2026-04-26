@@ -1,0 +1,59 @@
+##############################################################################
+# Filebeat Configuration — Nova Launch
+# Issue: #894 — ELK Stack Log Aggregation
+# Ships container logs to Logstash for processing.
+##############################################################################
+
+filebeat.inputs:
+  # ── Docker container logs ──────────────────────────────────────────────────
+  - type: container
+    paths:
+      - /var/lib/docker/containers/*/*.log
+    processors:
+      - add_docker_metadata:
+          host: "unix:///var/run/docker.sock"
+      - decode_json_fields:
+          fields: ["message"]
+          target: ""
+          overwrite_keys: true
+          add_error_key: true
+    include_lines: ['nova-launch']
+
+  # ── Application log files ──────────────────────────────────────────────────
+  - type: log
+    enabled: true
+    paths:
+      - /var/log/nova/*.log
+      - /app/logs/*.log
+    json.keys_under_root: true
+    json.add_error_key: true
+    multiline.pattern: '^\{'
+    multiline.negate: true
+    multiline.match: after
+
+# ── Output to Logstash ────────────────────────────────────────────────────────
+output.logstash:
+  hosts: ["${LOGSTASH_HOST:logstash}:5044"]
+  loadbalance: true
+  bulk_max_size: 2048
+
+# ── Processors ────────────────────────────────────────────────────────────────
+processors:
+  - add_host_metadata:
+      when.not.contains.tags: forwarded
+  - add_cloud_metadata: ~
+  - drop_fields:
+      fields: ["agent.ephemeral_id", "agent.hostname", "agent.id", "agent.version"]
+      ignore_missing: true
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+logging.level: warning
+logging.to_files: true
+logging.files:
+  path: /var/log/filebeat
+  name: filebeat
+  keepfiles: 3
+  permissions: 0644
+
+# ── Monitoring ────────────────────────────────────────────────────────────────
+monitoring.enabled: false
