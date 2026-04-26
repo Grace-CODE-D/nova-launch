@@ -1,5 +1,7 @@
 #![no_std]
 
+mod amm;
+mod bridge;
 mod freeze_functions;
 mod governance;
 
@@ -42,7 +44,7 @@ mod stream_claim_differential_test;
 // #[cfg(test)]
 // mod governance_test;
 
-use soroban_sdk::{contract, contractimpl, symbol_short, Address, Bytes, BytesN, Env, String, Vec};
+use soroban_sdk::{contract, contractimpl, symbol_short, Address, Bytes, BytesN, Env, String, Symbol, Vec};
 use types::{
     ContractMetadata, Error, FactoryState, PaginationCursor, StreamInfo, StreamPage, StreamParams,
     TokenCreationParams, TokenInfo, TokenStats, Vault, VaultStatus,
@@ -1898,6 +1900,140 @@ impl TokenFactory {
     ) -> bool {
         governance::is_approval_met(yes_votes, total_votes, approval_percent)
     }
+
+    // =========================================================================
+    // Bridge functions (Issue #868)
+    // =========================================================================
+
+    /// Lock tokens on the source chain and initiate a cross-chain bridge transfer.
+    ///
+    /// # Arguments
+    /// * `caller` - Address locking the tokens (must authorize)
+    /// * `token` - Token contract address to lock
+    /// * `amount` - Amount to lock (must be > 0)
+    /// * `target_chain` - Destination chain identifier (`ethereum`, `polygon`, or `bsc`)
+    /// * `recipient` - 32-byte recipient address on the target chain
+    ///
+    /// # Returns
+    /// The nonce assigned to this bridge transaction.
+    pub fn lock_tokens(
+        env: Env,
+        caller: Address,
+        token: Address,
+        amount: i128,
+        target_chain: Symbol,
+        recipient: BytesN<32>,
+    ) -> Result<u64, Error> {
+        bridge::lock_tokens(&env, &caller, &token, amount, &target_chain, &recipient)
+    }
+
+    /// Release tokens on the destination chain for a completed bridge transfer.
+    ///
+    /// Only the contract admin may call this. Each nonce can only be released once.
+    ///
+    /// # Arguments
+    /// * `admin` - Admin address (must authorize)
+    /// * `token` - Token contract address to release
+    /// * `amount` - Amount to release (must be > 0)
+    /// * `recipient` - Destination address on this chain
+    /// * `nonce` - Nonce from the originating `lock_tokens` call
+    pub fn release_tokens(
+        env: Env,
+        admin: Address,
+        token: Address,
+        amount: i128,
+        recipient: Address,
+        nonce: u64,
+    ) -> Result<(), Error> {
+        bridge::release_tokens(&env, &admin, &token, amount, &recipient, nonce)
+    }
+
+    /// Return the status of a bridge transaction by nonce.
+    ///
+    /// # Arguments
+    /// * `nonce` - The nonce assigned during `lock_tokens`
+    pub fn get_bridge_status(env: Env, nonce: u64) -> Result<types::BridgeStatus, Error> {
+        bridge::get_bridge_status(&env, nonce)
+    }
+
+    // =========================================================================
+    // AMM functions (Issue #869)
+    // =========================================================================
+
+    /// Add liquidity to a token pair pool and receive LP tokens.
+    ///
+    /// # Arguments
+    /// * `caller` - Liquidity provider (must authorize)
+    /// * `token_a` - First token address
+    /// * `token_b` - Second token address
+    /// * `amount_a` - Amount of `token_a` to deposit (must be > 0)
+    /// * `amount_b` - Amount of `token_b` to deposit (must be > 0)
+    ///
+    /// # Returns
+    /// LP tokens minted to the caller.
+    pub fn add_liquidity(
+        env: Env,
+        caller: Address,
+        token_a: Address,
+        token_b: Address,
+        amount_a: i128,
+        amount_b: i128,
+    ) -> Result<i128, Error> {
+        amm::add_liquidity(&env, &caller, &token_a, &token_b, amount_a, amount_b)
+    }
+
+    /// Remove liquidity from a pool by burning LP tokens.
+    ///
+    /// # Arguments
+    /// * `caller` - LP token holder (must authorize)
+    /// * `token_a` - First token address
+    /// * `token_b` - Second token address
+    /// * `lp_amount` - LP tokens to burn (must be > 0)
+    ///
+    /// # Returns
+    /// `(amount_a, amount_b)` returned to the caller.
+    pub fn remove_liquidity(
+        env: Env,
+        caller: Address,
+        token_a: Address,
+        token_b: Address,
+        lp_amount: i128,
+    ) -> Result<(i128, i128), Error> {
+        amm::remove_liquidity(&env, &caller, &token_a, &token_b, lp_amount)
+    }
+
+    /// Execute a token swap using the constant-product formula (x * y = k).
+    ///
+    /// # Arguments
+    /// * `caller` - Swapper (must authorize)
+    /// * `token_in` - Token being sold
+    /// * `token_out` - Token being bought
+    /// * `amount_in` - Amount of `token_in` to sell (must be > 0)
+    /// * `min_amount_out` - Minimum acceptable output (slippage guard)
+    ///
+    /// # Returns
+    /// Actual amount of `token_out` received.
+    pub fn swap(
+        env: Env,
+        caller: Address,
+        token_in: Address,
+        token_out: Address,
+        amount_in: i128,
+        min_amount_out: i128,
+    ) -> Result<i128, Error> {
+        amm::swap(&env, &caller, &token_in, &token_out, amount_in, min_amount_out)
+    }
+
+    /// Return the current spot price of `token_a` in terms of `token_b`.
+    ///
+    /// Price is scaled by `1_000_000_000` (PRICE_PRECISION).
+    ///
+    /// # Arguments
+    /// * `token_a` - Numerator token
+    /// * `token_b` - Denominator token
+    pub fn get_price(env: Env, token_a: Address, token_b: Address) -> Result<i128, Error> {
+        amm::get_price(&env, &token_a, &token_b)
+    }
 }
 
 // Temporarily disabled - requires create_token implementation
@@ -2024,3 +2160,9 @@ mod vault_cancellation_test;
 
 // #[cfg(test)]
 // mod vault_fuzz_test;
+
+#[cfg(test)]
+mod bridge_test;
+
+#[cfg(test)]
+mod amm_test;

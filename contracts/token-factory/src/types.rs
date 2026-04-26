@@ -252,6 +252,11 @@ pub enum DataKey {
     VaultByCreator(Address, u32),
     CreatorVaultCount(Address),
     PendingAdmin,
+    // Bridge keys
+    BridgeTx(u64),
+    BridgeNonce,
+    // AMM keys
+    AmmPool(Address, Address),
 }
 
 #[contracterror]
@@ -307,7 +312,47 @@ pub enum Error {
     ProposalNotQueued = 48,
     ProposalCancelled = 49,
     QuorumNotMet = 50,
+    // Bridge error codes (70-79)
+    BridgeNonceUsed = 70,
+    UnknownChain = 71,
+    // AMM error codes (80-89)
+    InsufficientLiquidity = 80,
+    SlippageExceeded = 81,
+    PoolNotFound = 82,
+    InvalidTokenPair = 83,
 }
+
+/// Status of a cross-chain bridge transaction.
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BridgeStatus {
+    Pending,
+    Completed,
+}
+
+/// Record of a bridge transaction stored on-chain.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BridgeTx {
+    pub nonce: u64,
+    pub token: Address,
+    pub amount: i128,
+    pub status: BridgeStatus,
+}
+
+/// AMM liquidity pool state.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AmmPool {
+    pub token_a: Address,
+    pub token_b: Address,
+    pub reserve_a: i128,
+    pub reserve_b: i128,
+    pub total_lp: i128,
+}
+
+/// Storage key additions for bridge and AMM.
+// (appended to DataKey enum below)
 
 /// Type of pending change
 ///
