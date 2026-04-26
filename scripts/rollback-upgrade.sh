@@ -1,7 +1,10 @@
 #!/bin/bash
 
 # Contract Rollback Script
-# Rolls back to previous contract version
+# Rolls back to previous contract version.
+#
+# See docs/PRODUCTION_INTEGRATION_RUNBOOK.md — "Rollback" section for the
+# full post-rollback verification sequence.
 
 set -e
 
@@ -62,6 +65,16 @@ if soroban contract invoke \
 else
     echo -e "${RED}✗ Previous contract not accessible${NC}"
     exit 1
+fi
+
+# Validate compatibility of the restored contract
+echo ""
+echo -e "${YELLOW}  Running compatibility checks on restored contract...${NC}"
+if ./scripts/check-upgrade-compatibility.sh "$PREVIOUS_CONTRACT" "$NETWORK" 2>/dev/null; then
+    echo -e "${GREEN}✓ Restored contract passes compatibility checks${NC}"
+else
+    echo -e "${YELLOW}⚠ Compatibility checks failed on restored contract — manual review required${NC}"
+    echo -e "${YELLOW}  See docs/CONTRACT_UPGRADE_COMPATIBILITY.md${NC}"
 fi
 
 echo ""

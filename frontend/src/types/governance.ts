@@ -3,11 +3,11 @@
  */
 
 export enum ProposalType {
-  PARAMETER_CHANGE = 'PARAMETER_CHANGE',
-  ADMIN_TRANSFER = 'ADMIN_TRANSFER',
-  TREASURY_SPEND = 'TREASURY_SPEND',
-  CONTRACT_UPGRADE = 'CONTRACT_UPGRADE',
-  CUSTOM = 'CUSTOM',
+  FEE_CHANGE = 0,
+  TREASURY_CHANGE = 1,
+  PAUSE_CONTRACT = 2,
+  UNPAUSE_CONTRACT = 3,
+  POLICY_UPDATE = 4,
 }
 
 export enum ProposalStatus {
@@ -20,15 +20,14 @@ export enum ProposalStatus {
 }
 
 export interface ProposalParams {
-  title: string;
-  description: string;
-  type: ProposalType;
-  action: {
-    contractId: string;
-    functionName: string;
-    args: any[];
-  };
   proposer: string;
+  type: ProposalType;
+  payload: Buffer | Uint8Array;
+  startTime: bigint;
+  endTime: bigint;
+  eta: bigint;
+  title?: string;       // Optional off-chain metadata
+  description?: string; // Optional off-chain metadata
 }
 
 export interface VoteParams {
@@ -38,8 +37,39 @@ export interface VoteParams {
   reason?: string;
 }
 
-export interface GovernanceTransactionResult {
-  txHash: string;
-  status: 'pending' | 'success' | 'failed';
+export interface GovernanceProposal {
+  id: string;
+  title: string;
+  description: string;
+  status: ProposalStatus;
+  creator: string;
+  voteCount: number;
+  votesFor: string;
+  votesAgainst: string;
+  votesAbstain: string;
+  createdAt: number;
+  votingStartsAt: number;
+  votingEndsAt: number;
+  executedAt?: number;
+  txHash?: string;
+  payloadType: string;
+  payload: string;
+}
+
+export interface GovernanceVote {
+  id: string;
+  proposalId: string;
+  voter: string;
+  support: boolean;
+  weight: string;
+  reason?: string;
   timestamp: number;
+  txHash: string;
+}
+
+export interface GovernanceStats {
+  totalProposals: number;
+  activeProposals: number;
+  totalVotes: number;
+  totalVoters: number;
 }

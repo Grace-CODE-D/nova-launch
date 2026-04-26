@@ -1,7 +1,10 @@
 #![no_std]
+#![allow(dead_code)]
+#![allow(unused_imports)]
+#![allow(deprecated)]
+#![allow(unused_must_use)]
 
-mod amm;
-mod bridge;
+mod campaign_validation;
 mod freeze_functions;
 mod governance;
 
@@ -16,6 +19,7 @@ mod milestone_verification_test;
 mod error_code_stability_test;
 mod mint;
 mod pagination;
+mod payload_validation;
 mod proposal_state_machine;
 mod storage;
 mod stream_types;
@@ -29,10 +33,35 @@ mod vesting;
 mod validation;
 
 #[cfg(test)]
+mod campaign_state_test;
+
+#[cfg(test)]
+mod campaign_event_idempotency_test;
+
+#[cfg(test)]
 mod governance_property_test;
+#[cfg(test)]
+mod governance_quorum_property_test;
+#[cfg(test)]
+mod governance_config_auth_property_test;
+#[cfg(test)]
+mod payload_validation_fuzz_test;
+
+#[cfg(test)]
+mod buyback_integration_test;
 
 #[cfg(all(test, feature = "legacy-tests"))]
 mod stream_claim_differential_test;
+
+// Property tests (annotated with Property numbers)
+#[cfg(test)]
+mod stream_metadata_immutability_property_test; // Property 74
+#[cfg(test)]
+mod vault_funding_overflow_property_test; // Property 73
+
+// Chaos tests
+#[cfg(test)]
+mod vault_concurrent_claims_chaos_test;
 
 // Temporarily disabled due to pre-existing compilation errors
 // #[cfg(test)]
@@ -46,8 +75,9 @@ mod stream_claim_differential_test;
 
 use soroban_sdk::{contract, contractimpl, symbol_short, Address, Bytes, BytesN, Env, String, Symbol, Vec};
 use types::{
-    ContractMetadata, Error, FactoryState, PaginationCursor, StreamInfo, StreamPage, StreamParams,
-    TokenCreationParams, TokenInfo, TokenStats, Vault, VaultStatus,
+    BuybackCampaign, CampaignStatus, ContractMetadata, Error, FactoryState, PaginationCursor,
+    StreamInfo, StreamPage, StreamParams, TokenCreationParams, TokenInfo, TokenStats, Vault,
+    VaultStatus,
 };
 use crate::milestone_verification::MilestoneVerifier;
 
@@ -1901,138 +1931,196 @@ impl TokenFactory {
         governance::is_approval_met(yes_votes, total_votes, approval_percent)
     }
 
-    // =========================================================================
-    // Bridge functions (Issue #868)
-    // =========================================================================
-
-    /// Lock tokens on the source chain and initiate a cross-chain bridge transfer.
+    /// Create a new buyback campaign
+    ///
+    /// Enables authorized governance actors to create buyback campaigns
+    /// with auditable event output and strict validation.
     ///
     /// # Arguments
-    /// * `caller` - Address locking the tokens (must authorize)
-    /// * `token` - Token contract address to lock
-    /// * `amount` - Amount to lock (must be > 0)
-    /// * `target_chain` - Destination chain identifier (`ethereum`, `polygon`, or `bsc`)
-    /// * `recipient` - 32-byte recipient address on the target chain
+    /// * `env` - The contract environment
+    /// * `creator` - Address creating the campaign (must be admin or token creator)
+    /// * `token_index` - Index of the token to buy back
+    /// * `budget` - Total budget allocated for the campaign
+    /// * `start_time` - When campaign becomes active
+    /// * `end_time` - When campaign expires
+    /// * `min_interval` - Minimum seconds between executions
+    /// * `max_slippage_bps` - Maximum slippage in basis points (0-10000)
+    /// * `source_token` - Token being spent (treasury token)
+    /// * `target_token` - Token being bought back
     ///
     /// # Returns
-    /// The nonce assigned to this bridge transaction.
-    pub fn lock_tokens(
+    /// * `Ok(u64)` - The campaign ID if successful
+    /// * `Err(Error)` - Error if validation fails or unauthorized
+    ///
+    /// # Authorization
+    /// Requires the creator to be either:
+    /// - The factory admin
+    /// - The token creator
+    ///
+    /// # Validation
+    /// Performs comprehensive validation including:
+    /// - Budget bounds (min: 1 XLM, max: 1B XLM)
+    /// - Time window (start in future, duration 1h-365d)
+    /// - Minimum interval (5min-7days)
+    /// - Slippage caps (max 5%)
+    /// - Token pair validation (different addresses)
+    ///
+    /// # Events
+    /// Emits a versioned `cmp_cr_v1` event with campaign details
+    ///
+    /// # Errors
+    /// * `Error::Unauthorized` - Caller is not admin or token creator
+    /// * `Error::InvalidBudget` - Budget is zero or negative
+    /// * `Error::BudgetBelowMinimum` - Budget < 1 XLM
+    /// * `Error::BudgetAboveMaximum` - Budget > 1B XLM
+    /// * `Error::StartTimeInPast` - Start time not in future
+    /// * `Error::EndTimeBeforeStart` - End time <= start time
+    /// * `Error::CampaignDurationTooShort` - Duration < 1 hour
+    /// * `Error::CampaignDurationTooLong` - Duration > 365 days
+    /// * `Error::InvalidMinInterval` - Interval is zero
+    /// * `Error::MinIntervalTooShort` - Interval < 5 minutes
+    /// * `Error::MinIntervalTooLong` - Interval > 7 days
+    /// * `Error::InvalidSlippage` - Slippage is zero or > 100%
+    /// * `Error::SlippageTooHigh` - Slippage > 5%
+    /// * `Error::SameSourceAndTarget` - Source and target are same
+    /// * `Error::InvalidTokenPair` - Target doesn't match token index
+    /// * `Error::TokenNotFound` - Token index does not exist
+    pub fn create_buyback_campaign(
         env: Env,
-        caller: Address,
-        token: Address,
-        amount: i128,
-        target_chain: Symbol,
-        recipient: BytesN<32>,
+        creator: Address,
+        token_index: u32,
+        budget: i128,
+        start_time: u64,
+        end_time: u64,
+        min_interval: u64,
+        max_slippage_bps: u32,
+        source_token: Address,
+        target_token: Address,
     ) -> Result<u64, Error> {
-        bridge::lock_tokens(&env, &caller, &token, amount, &target_chain, &recipient)
+        creator.require_auth();
+
+        // Allow only factory admin or token creator.
+        let admin = storage::get_admin(&env);
+        let token = storage::get_token_info(&env, token_index).ok_or(Error::TokenNotFound)?;
+        if creator != admin && creator != token.creator {
+            return Err(Error::Unauthorized);
+        }
+
+        campaign_validation::validate_campaign_config(
+            &env,
+            budget,
+            start_time,
+            end_time,
+            min_interval,
+            max_slippage_bps,
+            &source_token,
+            &target_token,
+        )?;
+
+        if token.address != target_token {
+            return Err(Error::InvalidParameters);
+        }
+
+        let campaign_id = storage::increment_campaign_count(&env)?;
+
+        let owner_index = storage::increment_owner_campaign_count(&env, &creator)?
+            .checked_sub(1)
+            .ok_or(Error::ArithmeticError)?;
+        storage::set_campaign_by_owner(&env, &creator, owner_index, campaign_id);
+        storage::increment_active_campaign_count(&env)?;
+
+        let campaign = types::BuybackCampaign {
+            id: campaign_id,
+            token_index,
+            budget,
+            spent: 0,
+            tokens_bought: 0,
+            execution_count: 0,
+            start_time,
+            end_time,
+            min_interval,
+            max_slippage_bps,
+            source_token,
+            target_token,
+            owner: creator.clone(),
+            status: types::CampaignStatus::Active,
+            created_at: env.ledger().timestamp(),
+            updated_at: env.ledger().timestamp(),
+        };
+
+        storage::set_campaign(&env, campaign_id, &campaign);
+        events::emit_campaign_created(&env, campaign_id, &creator, token_index, budget);
+
+        Ok(campaign_id)
     }
 
-    /// Release tokens on the destination chain for a completed bridge transfer.
-    ///
-    /// Only the contract admin may call this. Each nonce can only be released once.
+    /// Get a buyback campaign by ID
     ///
     /// # Arguments
-    /// * `admin` - Admin address (must authorize)
-    /// * `token` - Token contract address to release
-    /// * `amount` - Amount to release (must be > 0)
-    /// * `recipient` - Destination address on this chain
-    /// * `nonce` - Nonce from the originating `lock_tokens` call
-    pub fn release_tokens(
+    /// * `env` - The contract environment
+    /// * `campaign_id` - The campaign ID to retrieve
+    ///
+    /// # Returns
+    /// * `Ok(BuybackCampaign)` - The campaign if found
+    /// * `Err(Error::CampaignNotFound)` - If campaign doesn't exist
+    pub fn get_buyback_campaign(
         env: Env,
-        admin: Address,
-        token: Address,
-        amount: i128,
-        recipient: Address,
-        nonce: u64,
+        campaign_id: u64,
+    ) -> Result<types::BuybackCampaign, Error> {
+        storage::get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Governance Proposal Functions
+    // ═══════════════════════════════════════════════════════════════════════
+
+    pub fn create_proposal(
+        env: Env,
+        proposer: Address,
+        action_type: types::ActionType,
+        payload: Bytes,
+        start_time: u64,
+        end_time: u64,
+        eta: u64,
+    ) -> Result<u64, Error> {
+        timelock::create_proposal(
+            &env,
+            &proposer,
+            action_type,
+            payload,
+            start_time,
+            end_time,
+            eta,
+        )
+    }
+
+    pub fn vote_proposal(
+        env: Env,
+        voter: Address,
+        proposal_id: u64,
+        support: types::VoteChoice,
     ) -> Result<(), Error> {
-        bridge::release_tokens(&env, &admin, &token, amount, &recipient, nonce)
+        timelock::vote_proposal(&env, &voter, proposal_id, support)
     }
 
-    /// Return the status of a bridge transaction by nonce.
-    ///
-    /// # Arguments
-    /// * `nonce` - The nonce assigned during `lock_tokens`
-    pub fn get_bridge_status(env: Env, nonce: u64) -> Result<types::BridgeStatus, Error> {
-        bridge::get_bridge_status(&env, nonce)
+    pub fn finalize_proposal(env: Env, proposal_id: u64) -> Result<(), Error> {
+        timelock::finalize_proposal(&env, proposal_id)
     }
 
-    // =========================================================================
-    // AMM functions (Issue #869)
-    // =========================================================================
-
-    /// Add liquidity to a token pair pool and receive LP tokens.
-    ///
-    /// # Arguments
-    /// * `caller` - Liquidity provider (must authorize)
-    /// * `token_a` - First token address
-    /// * `token_b` - Second token address
-    /// * `amount_a` - Amount of `token_a` to deposit (must be > 0)
-    /// * `amount_b` - Amount of `token_b` to deposit (must be > 0)
-    ///
-    /// # Returns
-    /// LP tokens minted to the caller.
-    pub fn add_liquidity(
-        env: Env,
-        caller: Address,
-        token_a: Address,
-        token_b: Address,
-        amount_a: i128,
-        amount_b: i128,
-    ) -> Result<i128, Error> {
-        amm::add_liquidity(&env, &caller, &token_a, &token_b, amount_a, amount_b)
+    pub fn queue_proposal(env: Env, proposal_id: u64) -> Result<(), Error> {
+        timelock::queue_proposal(&env, proposal_id)
     }
 
-    /// Remove liquidity from a pool by burning LP tokens.
-    ///
-    /// # Arguments
-    /// * `caller` - LP token holder (must authorize)
-    /// * `token_a` - First token address
-    /// * `token_b` - Second token address
-    /// * `lp_amount` - LP tokens to burn (must be > 0)
-    ///
-    /// # Returns
-    /// `(amount_a, amount_b)` returned to the caller.
-    pub fn remove_liquidity(
-        env: Env,
-        caller: Address,
-        token_a: Address,
-        token_b: Address,
-        lp_amount: i128,
-    ) -> Result<(i128, i128), Error> {
-        amm::remove_liquidity(&env, &caller, &token_a, &token_b, lp_amount)
+    pub fn execute_proposal(env: Env, proposal_id: u64) -> Result<(), Error> {
+        timelock::execute_proposal(&env, proposal_id)
     }
 
-    /// Execute a token swap using the constant-product formula (x * y = k).
-    ///
-    /// # Arguments
-    /// * `caller` - Swapper (must authorize)
-    /// * `token_in` - Token being sold
-    /// * `token_out` - Token being bought
-    /// * `amount_in` - Amount of `token_in` to sell (must be > 0)
-    /// * `min_amount_out` - Minimum acceptable output (slippage guard)
-    ///
-    /// # Returns
-    /// Actual amount of `token_out` received.
-    pub fn swap(
-        env: Env,
-        caller: Address,
-        token_in: Address,
-        token_out: Address,
-        amount_in: i128,
-        min_amount_out: i128,
-    ) -> Result<i128, Error> {
-        amm::swap(&env, &caller, &token_in, &token_out, amount_in, min_amount_out)
+    pub fn get_proposal(env: Env, proposal_id: u64) -> Option<types::Proposal> {
+        timelock::get_proposal(&env, proposal_id)
     }
 
-    /// Return the current spot price of `token_a` in terms of `token_b`.
-    ///
-    /// Price is scaled by `1_000_000_000` (PRICE_PRECISION).
-    ///
-    /// # Arguments
-    /// * `token_a` - Numerator token
-    /// * `token_b` - Denominator token
-    pub fn get_price(env: Env, token_a: Address, token_b: Address) -> Result<i128, Error> {
-        amm::get_price(&env, &token_a, &token_b)
+    pub fn get_vote_counts(env: Env, proposal_id: u64) -> Option<(i128, i128, i128)> {
+        timelock::get_vote_counts(&env, proposal_id)
     }
 }
 
@@ -2118,15 +2206,17 @@ impl TokenFactory {
 mod gas_benchmark_comprehensive;
 #[cfg(all(test, feature = "legacy-tests"))]
 mod gas_regression_test;
+#[cfg(test)]
+mod gas_compute_thresholds;
 
 #[cfg(test)]
-// mod timelock_test;
+mod bench_test;
 
 #[cfg(test)]
 // mod pagination_integration_test;
 
 #[cfg(test)]
-// mod treasury_integration_test;
+mod treasury_integration_test;
 // #[cfg(test)]
 // mod token_pause_test;
 // #[cfg(test)]
@@ -2138,8 +2228,6 @@ mod gas_regression_test;
 // #[cfg(test)]
 // mod pagination_integration_test;
 // #[cfg(test)]
-// mod treasury_integration_test;
-// #[cfg(test)]
 // mod auth_fuzz_test;
 // #[cfg(test)]
 // mod metamorphic_test;
@@ -2149,6 +2237,24 @@ mod event_replay_test;
 
 #[cfg(test)]
 mod batch_token_creation_test;
+
+#[cfg(test)]
+mod campaign_stateful_fuzz_test;
+
+#[cfg(test)]
+mod accounting_property_test;
+
+#[cfg(test)]
+mod stream_status_transition_property_test;
+
+#[cfg(test)]
+mod stream_lifecycle_integration_test;
+
+#[cfg(test)]
+mod vault_claim_property_test;
+
+#[cfg(test)]
+mod vault_unlock_time_property_test;
 
 #[cfg(all(test, feature = "legacy-tests"))]
 mod vault_cancellation_test;

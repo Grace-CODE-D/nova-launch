@@ -1,6 +1,12 @@
 # Dependencies
 node_modules/
 target/
+**/target/
+**/package-lock.json
+**/pnpm-lock.yaml
+**/yarn.lock
+**/bun.lockb
+**/Cargo.lock
 
 # Environment
 .env
@@ -40,9 +46,17 @@ npm-debug.log*
 !contracts/token-factory/TESTING.md
 !DEPLOYMENT_GUIDE.md
 !DEPLOYMENT_CHECKLIST.md
+!docs/buyback-lifecycle-e2e.md
+!docs/FULLSTACK_SMOKE_TEST.md
 !CONFLICT_AND_CI_REPORT.md
 !GLOBAL_ERROR_HANDLING.md
 !docs/user-guides/*.md
+!docs/ENVIRONMENT_INTEGRATION.md
+!docs/PRODUCTION_INTEGRATION_RUNBOOK.md
+!docs/CONTRACT_UPGRADE_COMPATIBILITY.md
+!docs/MAINNET_READINESS_CHECKLIST.md
+!docs/INTEGRATION_METRICS.md
+!docs/PRODUCTION_READINESS_GATE.md
 !ACCESSIBILITY_TESTING_GUIDE.md
 !TEST_ARTIFACTS_GUIDE.md
 !TEST_ARTIFACTS_QUICK_REF.md

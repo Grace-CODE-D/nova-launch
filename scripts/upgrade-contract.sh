@@ -140,6 +140,17 @@ else
     echo -e "${YELLOW}⚠ Contract not initialized yet${NC}"
 fi
 
+# Run compatibility checks before promotion
+echo ""
+echo -e "${YELLOW}  Running upgrade compatibility checks...${NC}"
+if ./scripts/check-upgrade-compatibility.sh "$NEW_CONTRACT" "$NETWORK"; then
+    echo -e "${GREEN}✓ Compatibility checks passed${NC}"
+else
+    echo -e "${RED}✗ Compatibility checks failed — update ABI/decoders before promoting${NC}"
+    echo -e "${YELLOW}  See docs/CONTRACT_UPGRADE_COMPATIBILITY.md${NC}"
+    echo -e "${YELLOW}  Rollback: ./scripts/rollback-upgrade.sh $BACKUP_DIR $NETWORK${NC}"
+    exit 1
+fi
 # Step 7: Update deployment info
 echo ""
 echo -e "${YELLOW}[7/7] Updating Deployment Info${NC}"

@@ -5,8 +5,6 @@
  * Supports schema-stable event parsing with version detection.
  */
 
-import { xdr } from '@stellar/stellar-sdk';
-
 // Event schema versions
 export const VAULT_EVENT_VERSIONS = {
   CREATED: 'vlt_cr_v1',

@@ -85,6 +85,66 @@ export class GovernanceTransactions {
   }
 
   /**
+   * Finalize a proposal and monitor its status
+   */
+  async finalizeProposal(
+    voter: string,
+    proposalId: number,
+    options: GovernanceTransactionOptions = {}
+  ): Promise<string> {
+    return this.submitProposalMethod(voter, proposalId, (v, p) => this.stellarService.finalizeProposal(v, p), options);
+  }
+
+  /**
+   * Queue a proposal and monitor its status
+   */
+  async queueProposal(
+    voter: string,
+    proposalId: number,
+    options: GovernanceTransactionOptions = {}
+  ): Promise<string> {
+    return this.submitProposalMethod(voter, proposalId, (v, p) => this.stellarService.queueProposal(v, p), options);
+  }
+
+  /**
+   * Execute a proposal and monitor its status
+   */
+  async executeProposal(
+    voter: string,
+    proposalId: number,
+    options: GovernanceTransactionOptions = {}
+  ): Promise<string> {
+    return this.submitProposalMethod(voter, proposalId, (v, p) => this.stellarService.executeProposal(v, p), options);
+  }
+
+  private async submitProposalMethod(
+    caller: string,
+    proposalId: number,
+    method: (caller: string, proposalId: number) => Promise<string>,
+    options: GovernanceTransactionOptions = {}
+  ): Promise<string> {
+    try {
+      const txHash = await method(caller, proposalId);
+
+      this.monitor.startMonitoring(
+        txHash,
+        (update) => {
+          options.onStatusUpdate?.(update);
+        },
+        (error) => {
+          options.onError?.(error);
+        }
+      );
+
+      return txHash;
+    } catch (error) {
+      const parsedError = parseStellarError(error);
+      options.onError?.(parsedError);
+      throw parsedError;
+    }
+  }
+
+  /**
    * Stop monitoring a transaction
    */
   stopMonitoring(txHash: string) {

@@ -37,6 +37,10 @@ export const tokenCreatedEvent: ContractEventFixture = {
   topic: ["tok_reg", MOCK_TOKEN_ADDRESS],
   value: {
     creator: MOCK_CREATOR,
+    name: "Mock Token",
+    symbol: "MCK",
+    decimals: 7,
+    initial_supply: "1000000000000",
   },
   in_successful_contract_call: true,
   transaction_hash: "abc123def456",
@@ -116,6 +120,8 @@ export const tokenBurnedEvent: ContractEventFixture = {
   paging_token: "0001-5",
   topic: ["tok_burn", MOCK_TOKEN_ADDRESS],
   value: {
+    from: "GHOLDER123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+    burner: "GHOLDER123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ",
     amount: "500000000", // 50 tokens with 7 decimals
   },
   in_successful_contract_call: true,
@@ -253,3 +259,14 @@ export const eventFixturesByType = {
   unpause: unpauseEvent,
   clawback: clawbackToggledEvent,
 };
+
+/**
+ * Realistic token lifecycle replay sequence:
+ * create → self-burn → admin-burn
+ * Ordered by ledger for deterministic replay.
+ */
+export const tokenLifecycleReplaySequence: ContractEventFixture[] = [
+  tokenCreatedEvent,   // ledger 1000
+  adminBurnEvent,      // ledger 1003
+  tokenBurnedEvent,    // ledger 1004
+];

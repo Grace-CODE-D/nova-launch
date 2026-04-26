@@ -17,35 +17,35 @@ The stateful fuzzer consists of four main components:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                     Proptest Framework                       │
+│                     Proptest Framework                      │
 │  (Seed Management, Shrinking, Replay)                       │
 └────────────────────┬────────────────────────────────────────┘
                      │
                      ▼
 ┌─────────────────────────────────────────────────────────────┐
-│              Action Generator (Strategies)                   │
+│              Action Generator (Strategies)                  │
 │  - Initialize(admin, treasury, base_fee, metadata_fee)      │
 │  - UpdateFees(caller, base_fee, metadata_fee)               │
-│  - GetState()                                                │
-│  - GetTokenCount()                                           │
-│  - GetTokenInfo(index)                                       │
+│  - GetState()                                               │
+│  - GetTokenCount()                                          │
+│  - GetTokenInfo(index)                                      │
 └────────────────────┬────────────────────────────────────────┘
                      │
                      ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                   Action Executor                            │
-│  - Executes action against contract                          │
-│  - Updates State Model                                       │
-│  - Handles expected errors                                   │
+│                   Action Executor                           │
+│  - Executes action against contract                         │
+│  - Updates State Model                                      │
+│  - Handles expected errors                                  │
 └────────────────────┬────────────────────────────────────────┘
                      │
                      ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                  Invariant Checker                           │
-│  - Contract state == Model state                             │
-│  - Fees are non-negative                                     │
-│  - Double initialization fails                               │
-│  - Unauthorized access fails                                 │
+│                  Invariant Checker                          │
+│  - Contract state == Model state                            │
+│  - Fees are non-negative                                    │
+│  - Double initialization fails                              │
+│  - Unauthorized access fails                                │
 └─────────────────────────────────────────────────────────────┘
 ```
 

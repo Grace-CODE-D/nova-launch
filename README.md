@@ -312,6 +312,8 @@ soroban contract optimize \
 
 For detailed deployment instructions, see [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md).
 
+For the end-to-end production deployment and post-deploy verification runbook, see [docs/PRODUCTION_INTEGRATION_RUNBOOK.md](docs/PRODUCTION_INTEGRATION_RUNBOOK.md).
+
 ---
 
 ## 📁 Project Structure
@@ -1113,6 +1115,3 @@ A: Base deployment is 7 XLM, with an additional 3 XLM for metadata.
 **Q: Which networks are supported?**  
 A: Both Stellar testnet (for testing) and mainnet (for production).
 
-### Technical
-
-**Q: Whi

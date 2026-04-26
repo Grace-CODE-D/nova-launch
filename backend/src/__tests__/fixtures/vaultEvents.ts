@@ -2,7 +2,6 @@
  * Test fixtures for vault events
  */
 
-import { xdr } from '@stellar/stellar-sdk';
 
 export const vaultCreatedEventFixture = {
   eventName: 'vlt_cr_v1',

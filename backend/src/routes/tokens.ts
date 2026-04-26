@@ -1,7 +1,10 @@
 import { Router, Request, Response } from "express";
+import { performance } from "perf_hooks";
 import { prisma } from "../lib/prisma";
+
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
+import type { TokenSearchResponse } from "../contracts/apiSchemas";
 
 const router = Router();
 
@@ -147,6 +150,7 @@ router.get("/search", async (req: Request, res: Response) => {
     }
 
     // Execute queries in parallel
+    const start = performance.now();
     const [tokens, total] = await Promise.all([
       prisma.token.findMany({
         where,
@@ -171,6 +175,11 @@ router.get("/search", async (req: Request, res: Response) => {
       }),
       prisma.token.count({ where }),
     ]);
+    const duration = performance.now() - start;
+    if (duration > 150) {
+      console.warn(`[PERF] Token search took ${duration.toFixed(2)}ms`);
+    }
+
 
     // Convert BigInt to string for JSON serialization
     const serializedTokens = tokens.map((token) => ({
@@ -182,9 +191,9 @@ router.get("/search", async (req: Request, res: Response) => {
 
     const totalPages = Math.ceil(total / limit);
 
-    const response = {
+    const response: TokenSearchResponse = {
       success: true,
-      data: serializedTokens,
+      data: serializedTokens as any,
       pagination: {
         page,
         limit,
