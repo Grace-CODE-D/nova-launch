@@ -24,8 +24,9 @@ model Token {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  burnRecords BurnRecord[]
-  analytics   Analytics[]
+  burnRecords    BurnRecord[]
+  analytics      Analytics[]
+  dividendPools  DividendPool[]
 
   @@index([address])
   @@index([creator])
