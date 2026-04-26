@@ -933,82 +933,52 @@ pub fn emit_campaign_cancelled(
         (cancelled_by, budget_remaining),
     );
 }
-
-// ═══════════════════════════════════════════════════════════════════════
-// Burn Auction Events (v1)
-// ═══════════════════════════════════════════════════════════════════════
-
-/// Emit auction created event
-///
-/// **Event Name**: ba_crt_v1
-/// Published when a new burn auction is created
-pub fn emit_auction_created(
+/// Emit asset fractionalized event
+pub fn emit_asset_fractionalized(
     env: &Env,
-    auction_id: u64,
-    admin: &Address,
-    token_index: u32,
-    burn_amount: i128,
-    start_price: i128,
-    reserve_price: i128,
-    start_time: u64,
-    end_time: u64,
+    vault_id: u64,
+    asset_id: &BytesN<32>,
+    asset_contract: &Address,
+    owner: &Address,
+    fractional_token: &Address,
+    total_supply: i128,
 ) {
-    env.events().publish(
-        (symbol_short!("ba_crt_v1"), auction_id),
-        (
-            admin.clone(),
-            token_index,
-            burn_amount,
-            start_price,
-            reserve_price,
-            start_time,
-            end_time,
-        ),
+    let topics = (
+        symbol_short!("frac_v1"),
+        vault_id,
+        asset_id.clone(),
+        owner.clone(),
     );
+    
+    let data = (
+        asset_contract.clone(),
+        fractional_token.clone(),
+        total_supply,
+    );
+    
+    env.events().publish(topics, data);
 }
 
-/// Emit auction settled event
-///
-/// **Event Name**: ba_stl_v1
-/// Published when a winning bid settles an auction
-pub fn emit_auction_settled(
+/// Emit asset redeemed event
+pub fn emit_asset_redeemed(
     env: &Env,
-    auction_id: u64,
-    winner: &Address,
-    settlement_price: i128,
-    burn_amount: i128,
-    token_index: u32,
+    vault_id: u64,
+    asset_id: &BytesN<32>,
+    asset_contract: &Address,
+    redeemer: &Address,
+    total_supply: i128,
 ) {
-    env.events().publish(
-        (symbol_short!("ba_stl_v1"), auction_id),
-        (winner.clone(), settlement_price, burn_amount, token_index),
+    let topics = (
+        symbol_short!("redeem_v1"),
+        vault_id,
+        asset_id.clone(),
+        redeemer.clone(),
     );
-}
-
-/// Emit auction cancelled event
-///
-/// **Event Name**: ba_cnl_v1
-/// Published when an auction is cancelled
-pub fn emit_auction_cancelled(env: &Env, auction_id: u64, caller: &Address) {
-    env.events().publish(
-        (symbol_short!("ba_cnl_v1"), auction_id),
-        (caller.clone(),),
+    
+    let data = (
+        asset_contract.clone(),
+        total_supply,
     );
-}
-
-/// Emit auction reserve price updated event
-///
-/// **Event Name**: ba_rpu_v1
-/// Published when the admin lowers the reserve price
-pub fn emit_auction_reserve_updated(
-    env: &Env,
-    auction_id: u64,
-    admin: &Address,
-    old_reserve: i128,
-    new_reserve: i128,
-) {
-    env.events().publish(
-        (symbol_short!("ba_rpu_v1"), auction_id),
-        (admin.clone(), old_reserve, new_reserve),
-    );
+    
+    env.events().publish(topics, data);
 }
