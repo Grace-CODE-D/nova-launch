@@ -610,6 +610,7 @@ mod stream_lifecycle_integration_tests {
             );
         }
     }
+
     // Helper function to get symbol_short for testing
     fn symbol_short(s: &str) -> soroban_sdk::Symbol {
         soroban_sdk::symbol_short!(s)

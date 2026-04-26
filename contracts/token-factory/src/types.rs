@@ -400,32 +400,60 @@ pub struct FeeUpdate {
     pub metadata_fee: Option<i128>,
 }
 
-/// Priority level for a queued proposal.
+// ─────────────────────────────────────────────────────────────────────────────
+// Burn Auction Types
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Lifecycle status of a burn auction
 ///
-/// Higher numeric value = higher priority.
-/// When multiple proposals are queued, `Critical` executes before `High`,
-/// `High` before `Normal`, and `Normal` before `Low`.
-/// Ties in priority are broken by `enqueued_at` (earlier wins).
+/// Auctions start as `Open`, transition to `Settled` when a winning bid is
+/// placed, or to `Cancelled` when cancelled by the admin or after expiry.
+/// Both `Settled` and `Cancelled` are terminal states.
 #[contracttype]
-#[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord)]
-pub enum ProposalPriority {
-    Low = 0,
-    Normal = 1,
-    High = 2,
-    Critical = 3,
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AuctionStatus {
+    /// Auction is accepting bids
+    Open = 0,
+    /// A winning bid was placed; tokens have been burned
+    Settled = 1,
+    /// Auction was cancelled before settlement
+    Cancelled = 2,
 }
 
-/// An entry in the proposal execution queue.
+/// A Dutch auction for token price discovery via burn
 ///
-/// Wraps a proposal id with its assigned priority and the timestamp at which
-/// it was enqueued (used as a tiebreaker: earlier enqueue wins).
+/// The price decreases linearly from `start_price` to `reserve_price` over
+/// the auction window. The first bidder to meet the current price wins and
+/// the `burn_amount` of tokens is burned.
+///
+/// # Fields
+/// * `id` - Unique auction identifier
+/// * `token_index` - Index of the token being auctioned for burn
+/// * `burn_amount` - Number of tokens to burn on settlement
+/// * `start_price` - Opening price in stroops (highest)
+/// * `reserve_price` - Minimum price in stroops (floor)
+/// * `start_time` - Unix timestamp when bidding opens
+/// * `end_time` - Unix timestamp when the auction expires
+/// * `winning_bid` - Settlement price (None until settled)
+/// * `winner` - Address of the winning bidder (None until settled)
+/// * `status` - Current auction lifecycle status
+/// * `created_at` - Unix timestamp of auction creation
+/// * `settled_at` - Unix timestamp of settlement (None until settled)
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct QueueEntry {
-    pub proposal_id: u64,
-    pub priority: ProposalPriority,
-    pub enqueued_at: u64,
-    pub eta: u64,
+pub struct BurnAuction {
+    pub id: u64,
+    pub token_index: u32,
+    pub burn_amount: i128,
+    pub start_price: i128,
+    pub reserve_price: i128,
+    pub start_time: u64,
+    pub end_time: u64,
+    pub winning_bid: Option<i128>,
+    pub winner: Option<Address>,
+    pub status: AuctionStatus,
+    pub created_at: u64,
+    pub settled_at: Option<u64>,
 }
 
 /// Storage keys for contract data
@@ -474,10 +502,10 @@ pub enum DataKey {
     CampaignByCreator(Address, u32),
     CreatorCampaignCount(Address),
     ActiveCampaigns,
-    StakingPool(u64),
-    StakingPoolCount,
-    NextStakingPoolId,
-    UserStake(u64, Address),
+    // Burn Auction
+    BurnAuction(u64),
+    AuctionCount,
+    OpenAuctionCount,
 }
 
 #[contracttype]
@@ -539,11 +567,15 @@ impl Error {
     pub const CampaignNotFound: Self = Self(51);
     pub const InvalidBudget: Self = Self(52);
     pub const InsufficientBudget: Self = Self(53);
-    pub const StakingPoolNotFound: Self = Self(54);
-    pub const InsufficientStake: Self = Self(55);
-    pub const RewardNotStarted: Self = Self(56);
-    pub const StakingNotActive: Self = Self(57);
-    pub const InvalidRewardRate: Self = Self(58);
+    // Campaign state errors
+    pub const CampaignAlreadyPaused: Self = Self(54);
+    pub const CampaignNotPaused: Self = Self(55);
+    pub const CampaignCompleted: Self = Self(56);
+    pub const CampaignCancelled: Self = Self(57);
+    // Burn Auction errors
+    pub const AuctionNotFound: Self = Self(58);
+    pub const AuctionExpired: Self = Self(59);
+    pub const AuctionAlreadySettled: Self = Self(60);
 }
 
 impl From<Error> for soroban_sdk::Error {
