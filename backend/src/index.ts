@@ -95,6 +95,7 @@ app.use("/api/docs", openApiRouter);
 
 import { healthService } from "./lib/health/health.service";
 import { isAppError, toAppError } from "./lib/errors";
+import { getCorrelationId } from "./lib/async-context";
 
 // Health check — liveness (is the process alive?)
 app.get("/health/live", (_req, res) => {
@@ -156,12 +157,17 @@ app.use(
   ) => {
     const appErr = toAppError(err);
     const isDev = process.env.NODE_ENV === "development";
+    const correlationId = getCorrelationId() ?? (req as any).correlationId;
 
     if (appErr.httpStatus >= 500) {
       console.error("Error:", err);
     }
 
-    res.status(appErr.httpStatus).json(appErr.toHttpResponse(isDev));
+    const body = appErr.toHttpResponse(isDev);
+    if (correlationId) {
+      (body as any).correlationId = correlationId;
+    }
+    res.status(appErr.httpStatus).json(body);
   }
 );
 
