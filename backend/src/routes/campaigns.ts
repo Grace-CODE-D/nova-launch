@@ -5,6 +5,7 @@ import {
   validateCampaignId,
   validateCampaignExecutionQuery,
 } from "../middleware/validation";
+import { withQueryTimeout, withQueryTimeoutRace, getQueryTimeoutMs } from "../middleware/queryTimeout";
 
 const router = Router();
 
@@ -62,23 +63,32 @@ router.get("/creator/:creator", async (req, res) => {
 });
 
 /** @contract CampaignExecutionsResponse */
-router.get("/:campaignId/executions", validateCampaignExecutionQuery, async (req, res) => {
-  try {
-    const campaignId = parseInt(req.params.campaignId);
-    const limit = parseInt(req.query.limit as string) || 50;
-    const offset = parseInt(req.query.offset as string) || 0;
+router.get(
+  "/:campaignId/executions",
+  validateCampaignExecutionQuery,
+  withQueryTimeout(60_000),
+  async (req, res) => {
+    try {
+      const campaignId = parseInt(req.params.campaignId);
+      const limit = parseInt(req.query.limit as string) || 50;
+      const offset = parseInt(req.query.offset as string) || 0;
+      const timeoutMs = getQueryTimeoutMs(res);
 
-    const result = await campaignProjectionService.getExecutionHistory(
-      campaignId,
-      limit,
-      offset
-    );
+      const result = await withQueryTimeoutRace(
+        () => campaignProjectionService.getExecutionHistory(campaignId, limit, offset),
+        timeoutMs,
+        "getExecutionHistory",
+      );
 
-    res.json(result);
-  } catch (error) {
-    res.status(500).json({ error: "Failed to fetch execution history" });
-  }
-});
+      res.json(result);
+    } catch (error: any) {
+      if (error?.name === "QueryTimeoutError") {
+        return res.status(504).json({ error: error.message });
+      }
+      res.status(500).json({ error: "Failed to fetch execution history" });
+    }
+  },
+);
 
 /** @contract CampaignRecord */
 router.get("/:campaignId", validateCampaignId, async (req, res) => {
