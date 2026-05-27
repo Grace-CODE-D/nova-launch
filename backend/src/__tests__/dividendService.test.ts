@@ -583,3 +583,243 @@ describe("Edge cases", () => {
     expect(result.remainingAmount).toBe("700000");
   });
 });
+
+// ─── Issue #1063: Dividend Pro-Rata Precision & Rounding ──────────────────────
+
+describe("Issue #1063: Dividend pro-rata precision and rounding safety", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("sum of all individual claims never exceeds pool total", async () => {
+    // Pool: 1000 units, 3 holders with uneven distribution
+    // Holder A: 333 / 1000 = 33.3% → 333
+    // Holder B: 333 / 1000 = 33.3% → 333
+    // Holder C: 334 / 1000 = 33.4% → 334
+    // Total: 333 + 333 + 334 = 1000 (no overflow)
+    let capturedData: any;
+    vi.mocked(prisma.token.findUnique).mockResolvedValue(mockToken as any);
+    vi.mocked(prisma.$transaction).mockImplementation(async (fn: any) => {
+      const mockCreate = vi.fn().mockImplementation(async ({ data }: any) => {
+        capturedData = data;
+        return mockPool;
+      });
+      return fn({ dividendPool: { create: mockCreate } });
+    });
+
+    await createDividendPool({
+      tokenId: TOKEN_ID,
+      fundedBy: "GADMIN",
+      totalAmount: "1000",
+      supplySnapshot: "1000",
+      perHolderCap: "0",
+      txHash: "tx-uneven",
+      holders: [
+        { holder: "H1", balance: "333" },
+        { holder: "H2", balance: "333" },
+        { holder: "H3", balance: "334" },
+      ],
+    });
+
+    const snapshots = capturedData.snapshots.createMany.data;
+    const totalClaimed = snapshots.reduce(
+      (sum: bigint, s: any) => sum + s.claimable,
+      0n
+    );
+
+    expect(totalClaimed).toBeLessThanOrEqual(1000n);
+    expect(totalClaimed).toBe(1000n); // All distributed
+  });
+
+  it("handles uneven divisions with deterministic dust handling", async () => {
+    // Pool: 100 units, 3 equal holders
+    // Each should get 33.333... → floor to 33
+    // Dust: 100 - (33 + 33 + 33) = 1 unit
+    // Deterministic: dust goes to first holder
+    let capturedData: any;
+    vi.mocked(prisma.token.findUnique).mockResolvedValue(mockToken as any);
+    vi.mocked(prisma.$transaction).mockImplementation(async (fn: any) => {
+      const mockCreate = vi.fn().mockImplementation(async ({ data }: any) => {
+        capturedData = data;
+        return mockPool;
+      });
+      return fn({ dividendPool: { create: mockCreate } });
+    });
+
+    await createDividendPool({
+      tokenId: TOKEN_ID,
+      fundedBy: "GADMIN",
+      totalAmount: "100",
+      supplySnapshot: "300",
+      perHolderCap: "0",
+      txHash: "tx-dust",
+      holders: [
+        { holder: "H1", balance: "100" },
+        { holder: "H2", balance: "100" },
+        { holder: "H3", balance: "100" },
+      ],
+    });
+
+    const snapshots = capturedData.snapshots.createMany.data;
+    const amounts = snapshots.map((s: any) => s.claimable);
+
+    // Verify deterministic dust handling
+    const totalClaimed = amounts.reduce((a: bigint, b: bigint) => a + b, 0n);
+    expect(totalClaimed).toBe(100n);
+
+    // First holder gets the dust
+    expect(amounts[0]).toBe(34n);
+    expect(amounts[1]).toBe(33n);
+    expect(amounts[2]).toBe(33n);
+  });
+
+  it("holder with zero eligible balance receives zero", async () => {
+    let capturedData: any;
+    vi.mocked(prisma.token.findUnique).mockResolvedValue(mockToken as any);
+    vi.mocked(prisma.$transaction).mockImplementation(async (fn: any) => {
+      const mockCreate = vi.fn().mockImplementation(async ({ data }: any) => {
+        capturedData = data;
+        return mockPool;
+      });
+      return fn({ dividendPool: { create: mockCreate } });
+    });
+
+    await createDividendPool({
+      tokenId: TOKEN_ID,
+      fundedBy: "GADMIN",
+      totalAmount: "1000",
+      supplySnapshot: "1000",
+      perHolderCap: "0",
+      txHash: "tx-zero",
+      holders: [
+        { holder: "ACTIVE", balance: "1000" },
+        { holder: "INACTIVE", balance: "0" },
+      ],
+    });
+
+    const snapshots = capturedData.snapshots.createMany.data;
+    const inactive = snapshots.find((s: any) => s.holder === "INACTIVE");
+
+    expect(inactive.claimable).toBe(0n);
+  });
+
+  it("prevents double-claim via unique constraint on (poolId, claimant)", async () => {
+    const claimInput = { poolId: POOL_ID, claimant: HOLDER_A, txHash: "tx1" };
+    const mockSnapshot = {
+      poolId: POOL_ID,
+      holder: HOLDER_A,
+      balance: BigInt("5000000"),
+      claimable: BigInt("500000"),
+    };
+    const mockClaim = {
+      id: "claim-1",
+      poolId: POOL_ID,
+      claimant: HOLDER_A,
+      amount: BigInt("500000"),
+      txHash: "tx1",
+      claimedAt: new Date(),
+    };
+
+    vi.mocked(prisma.dividendPool.findUnique).mockResolvedValue(mockPool as any);
+    vi.mocked(prisma.holderSnapshot.findUnique).mockResolvedValue(mockSnapshot as any);
+
+    // First claim succeeds
+    vi.mocked(prisma.$transaction).mockImplementation(async (fn: any) =>
+      fn({
+        dividendClaim: { create: vi.fn().mockResolvedValue(mockClaim) },
+        dividendPool: { update: vi.fn().mockResolvedValue(mockPool) },
+      })
+    );
+
+    const result1 = await claimDividend(claimInput);
+    expect(result1.amount).toBe("500000");
+
+    // Second claim with same (poolId, claimant) fails
+    vi.mocked(prisma.dividendClaim.findFirst).mockResolvedValue(mockClaim as any);
+
+    await expect(claimDividend(claimInput)).rejects.toThrow(
+      "Holder has already claimed from this pool"
+    );
+  });
+
+  it("large pool with many holders maintains precision", async () => {
+    // Simulate 1000 holders with varying balances
+    const holders = Array.from({ length: 1000 }, (_, i) => ({
+      holder: `H${i}`,
+      balance: String(1000 + i), // 1000 to 1999
+    }));
+
+    const totalSupply = holders.reduce(
+      (sum, h) => sum + BigInt(h.balance),
+      0n
+    );
+    const poolAmount = "1000000000"; // 1 billion
+
+    let capturedData: any;
+    vi.mocked(prisma.token.findUnique).mockResolvedValue(mockToken as any);
+    vi.mocked(prisma.$transaction).mockImplementation(async (fn: any) => {
+      const mockCreate = vi.fn().mockImplementation(async ({ data }: any) => {
+        capturedData = data;
+        return mockPool;
+      });
+      return fn({ dividendPool: { create: mockCreate } });
+    });
+
+    await createDividendPool({
+      tokenId: TOKEN_ID,
+      fundedBy: "GADMIN",
+      totalAmount: poolAmount,
+      supplySnapshot: totalSupply.toString(),
+      perHolderCap: "0",
+      txHash: "tx-large",
+      holders,
+    });
+
+    const snapshots = capturedData.snapshots.createMany.data;
+    const totalClaimed = snapshots.reduce(
+      (sum: bigint, s: any) => sum + s.claimable,
+      0n
+    );
+
+    // Total claimed must not exceed pool
+    expect(totalClaimed).toBeLessThanOrEqual(BigInt(poolAmount));
+    // Dust should be minimal (at most 1 unit per holder, but typically 0)
+    const dust = BigInt(poolAmount) - totalClaimed;
+    expect(dust).toBeLessThanOrEqual(BigInt(holders.length));
+  });
+
+  it("cap enforcement does not cause total to exceed pool", async () => {
+    // Pool: 1000, 2 holders, cap at 600 each
+    // Without cap: H1 gets 600, H2 gets 400
+    // With cap: H1 gets 600 (capped), H2 gets 400 (under cap)
+    // Total: 1000 (still valid)
+    let capturedData: any;
+    vi.mocked(prisma.token.findUnique).mockResolvedValue(mockToken as any);
+    vi.mocked(prisma.$transaction).mockImplementation(async (fn: any) => {
+      const mockCreate = vi.fn().mockImplementation(async ({ data }: any) => {
+        capturedData = data;
+        return mockPool;
+      });
+      return fn({ dividendPool: { create: mockCreate } });
+    });
+
+    await createDividendPool({
+      tokenId: TOKEN_ID,
+      fundedBy: "GADMIN",
+      totalAmount: "1000",
+      supplySnapshot: "1000",
+      perHolderCap: "600",
+      txHash: "tx-cap",
+      holders: [
+        { holder: "H1", balance: "600" },
+        { holder: "H2", balance: "400" },
+      ],
+    });
+
+    const snapshots = capturedData.snapshots.createMany.data;
+    const totalClaimed = snapshots.reduce(
+      (sum: bigint, s: any) => sum + s.claimable,
+      0n
+    );
+
+    expect(totalClaimed).toBeLessThanOrEqual(1000n);
+  });
+});

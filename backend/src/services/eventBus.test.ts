@@ -262,3 +262,213 @@ describe("EventBus — subscriberCount & reset", () => {
     expect(bus.subscriberCount()).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Issue #1064: Event Bus Pub/Sub Delivery Guarantees
+// ---------------------------------------------------------------------------
+
+describe("Issue #1064: Event bus pub/sub delivery guarantees", () => {
+  it("published event reaches all current subscribers", async () => {
+    const bus = makeBus();
+    const handler1 = vi.fn();
+    const handler2 = vi.fn();
+    const handler3 = vi.fn();
+
+    bus.subscribe("order.created", handler1);
+    bus.subscribe("order.created", handler2);
+    bus.subscribe("order.created", handler3);
+
+    const event = await bus.publish("order.created", { orderId: "123" });
+
+    expect(handler1).toHaveBeenCalledOnce();
+    expect(handler2).toHaveBeenCalledOnce();
+    expect(handler3).toHaveBeenCalledOnce();
+
+    // All receive the same event
+    expect(handler1.mock.calls[0][0]).toEqual(event);
+    expect(handler2.mock.calls[0][0]).toEqual(event);
+    expect(handler3.mock.calls[0][0]).toEqual(event);
+  });
+
+  it("unsubscribed handlers no longer receive events", async () => {
+    const bus = makeBus();
+    const handler1 = vi.fn();
+    const handler2 = vi.fn();
+
+    const sub1 = bus.subscribe("payment.processed", handler1);
+    const sub2 = bus.subscribe("payment.processed", handler2);
+
+    await bus.publish("payment.processed", { amount: 100 });
+    expect(handler1).toHaveBeenCalledOnce();
+    expect(handler2).toHaveBeenCalledOnce();
+
+    // Unsubscribe handler1
+    sub1.unsubscribe();
+
+    await bus.publish("payment.processed", { amount: 200 });
+    expect(handler1).toHaveBeenCalledOnce(); // still 1, not called again
+    expect(handler2).toHaveBeenCalledTimes(2); // called again
+  });
+
+  it("throwing subscriber does not prevent delivery to others", async () => {
+    const bus = makeBus();
+    const goodHandler = vi.fn();
+    const badHandler = vi.fn().mockImplementation(() => {
+      throw new Error("handler crashed");
+    });
+    const anotherGoodHandler = vi.fn();
+
+    bus.subscribe("webhook.sent", badHandler);
+    bus.subscribe("webhook.sent", goodHandler);
+    bus.subscribe("webhook.sent", anotherGoodHandler);
+
+    // Publish should not throw despite badHandler failing
+    await expect(bus.publish("webhook.sent", { id: "w1" })).resolves.toBeDefined();
+
+    // Good handlers still executed
+    expect(goodHandler).toHaveBeenCalledOnce();
+    expect(anotherGoodHandler).toHaveBeenCalledOnce();
+
+    // Bad handler was called but error was caught
+    expect(badHandler).toHaveBeenCalledOnce();
+
+    // Error recorded in DLQ
+    const dlq = bus.getDeadLetterQueue();
+    expect(dlq).toHaveLength(1);
+    expect(dlq[0].error).toBe("handler crashed");
+  });
+
+  it("publishing with no subscribers is a no-op", async () => {
+    const bus = makeBus();
+
+    // No subscribers registered
+    const event = await bus.publish("orphan.event", { data: "test" });
+
+    expect(event.type).toBe("orphan.event");
+    expect(event.payload).toEqual({ data: "test" });
+
+    // Event is still recorded in history
+    expect(bus.getHistory()).toHaveLength(1);
+
+    // No DLQ entries
+    expect(bus.getDeadLetterQueue()).toHaveLength(0);
+  });
+
+  it("multiple async handlers all complete before publish resolves", async () => {
+    const bus = makeBus();
+    const order: string[] = [];
+
+    bus.subscribe("async.event", async () => {
+      await new Promise((r) => setTimeout(r, 10));
+      order.push("handler1");
+    });
+
+    bus.subscribe("async.event", async () => {
+      await new Promise((r) => setTimeout(r, 5));
+      order.push("handler2");
+    });
+
+    bus.subscribe("async.event", async () => {
+      order.push("handler3");
+    });
+
+    await bus.publish("async.event", {});
+    order.push("after publish");
+
+    // All handlers completed before "after publish"
+    expect(order).toContain("handler1");
+    expect(order).toContain("handler2");
+    expect(order).toContain("handler3");
+    expect(order[order.length - 1]).toBe("after publish");
+  });
+
+  it("wildcard subscribers receive all events alongside specific subscribers", async () => {
+    const bus = makeBus();
+    const specificHandler = vi.fn();
+    const wildcardHandler = vi.fn();
+
+    bus.subscribe("token.minted", specificHandler);
+    bus.subscribe("*", wildcardHandler);
+
+    await bus.publish("token.minted", { amount: 1000 });
+
+    expect(specificHandler).toHaveBeenCalledOnce();
+    expect(wildcardHandler).toHaveBeenCalledOnce();
+
+    // Both receive the same event
+    const event = specificHandler.mock.calls[0][0];
+    expect(wildcardHandler.mock.calls[0][0]).toEqual(event);
+  });
+
+  it("one failing wildcard subscriber does not block specific subscribers", async () => {
+    const bus = makeBus();
+    const specificHandler = vi.fn();
+    const badWildcardHandler = vi.fn().mockImplementation(() => {
+      throw new Error("wildcard boom");
+    });
+
+    bus.subscribe("token.burned", specificHandler);
+    bus.subscribe("*", badWildcardHandler);
+
+    await expect(bus.publish("token.burned", { amount: 500 })).resolves.toBeDefined();
+
+    expect(specificHandler).toHaveBeenCalledOnce();
+    expect(badWildcardHandler).toHaveBeenCalledOnce();
+
+    const dlq = bus.getDeadLetterQueue();
+    expect(dlq).toHaveLength(1);
+    expect(dlq[0].error).toBe("wildcard boom");
+  });
+
+  it("correlationId is propagated through all subscribers", async () => {
+    const bus = makeBus();
+    const handler1 = vi.fn();
+    const handler2 = vi.fn();
+
+    bus.subscribe("traced.event", handler1);
+    bus.subscribe("traced.event", handler2);
+
+    const correlationId = "trace-abc-123";
+    await bus.publish("traced.event", { data: "x" }, { correlationId });
+
+    expect(handler1.mock.calls[0][0].correlationId).toBe(correlationId);
+    expect(handler2.mock.calls[0][0].correlationId).toBe(correlationId);
+  });
+
+  it("dead-letter queue preserves subscription ID for debugging", async () => {
+    const bus = makeBus();
+    const badHandler = vi.fn().mockImplementation(() => {
+      throw new Error("debug me");
+    });
+
+    const sub = bus.subscribe("debug.event", badHandler);
+
+    await bus.publish("debug.event", {});
+
+    const dlq = bus.getDeadLetterQueue();
+    expect(dlq).toHaveLength(1);
+    expect(dlq[0].handlerSubscriptionId).toBe(sub.id);
+    expect(dlq[0].event.type).toBe("debug.event");
+    expect(dlq[0].failedAt).toBeDefined();
+  });
+
+  it("concurrent publishes to different event types do not interfere", async () => {
+    const bus = makeBus();
+    const handler1 = vi.fn();
+    const handler2 = vi.fn();
+
+    bus.subscribe("event.a", handler1);
+    bus.subscribe("event.b", handler2);
+
+    await Promise.all([
+      bus.publish("event.a", { id: 1 }),
+      bus.publish("event.b", { id: 2 }),
+    ]);
+
+    expect(handler1).toHaveBeenCalledOnce();
+    expect(handler2).toHaveBeenCalledOnce();
+
+    const history = bus.getHistory();
+    expect(history).toHaveLength(2);
+  });
+});
