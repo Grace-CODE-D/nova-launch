@@ -6,7 +6,8 @@ import {
   validateCampaignTokenParam,
   validateCampaignCreatorParam,
   validateCampaignExecutionQuery,
-} from "../lib/validation/campaignSchemas";
+} from "../middleware/validation";
+import { idempotencyMiddleware } from "../middleware/idempotency";
 
 const router = Router();
 
@@ -105,10 +106,11 @@ router.get("/:campaignId", validateCampaignIdParam, async (req, res) => {
 
 /**
  * POST /api/campaigns
- * Create a new campaign. Validated by Zod schema (strips unknown fields).
+ * Create a new campaign. Validated by validateCampaignCreate middleware.
+ * Supports Idempotency-Key header to deduplicate retried requests.
  * @contract CampaignRecord
  */
-router.post("/", validateCreateCampaignBody, async (req, res) => {
+router.post("/", idempotencyMiddleware, validateCampaignCreate, async (req, res) => {
   try {
     const { tokenId, creator, type, targetAmount, startTime, endTime, metadata, txHash } = req.body;
 
