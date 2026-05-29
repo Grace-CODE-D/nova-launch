@@ -1,6 +1,6 @@
 # Database Backup & PITR Implementation Summary
 
-**Issue:** Add Automated Database Backup with Point-in-Time Recovery  
+**Issue:** [#898 Add Automated Database Backup with Point-in-Time Recovery](https://github.com/Emmyt24/nova-launch/issues/898)  
 **Branch:** `infra/db-backup-pitr`  
 **Status:** ✅ Complete  
 **Date:** April 28, 2026
