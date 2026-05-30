@@ -1,5 +1,6 @@
 import { IPFS_CONFIG, IPFS_GATEWAYS, IPFS_GATEWAY_TIMEOUT_MS } from '../config/ipfs';
 import type { TokenMetadata } from '../types';
+import { validateMetadataSchema } from './metadataSchema';
 
 const metadataCache = new Map<string, TokenMetadata>();
 
@@ -55,6 +56,11 @@ export class IPFSService {
             description,
             image: imageUri,
         };
+
+        const validation = validateMetadataSchema(metadata);
+        if (!validation.valid) {
+            throw new Error(`Metadata schema validation failed: ${validation.errors.join('; ')}`);
+        }
 
         const metadataBlob = new Blob([JSON.stringify(metadata)], {
             type: 'application/json',

@@ -456,6 +456,39 @@ export class TransactionMonitor {
     }
 
     /**
+     * Verify a transaction receipt and return a typed result.
+     * Polls until the transaction reaches a terminal state (success/failed/timeout).
+     * Use this after submission to confirm on-chain outcome before surfacing success to the user.
+     */
+    async verifyTransactionReceipt(
+        transactionHash: string,
+        timeoutMs: number = this.config.timeout
+    ): Promise<{ status: 'success' | 'failed' | 'timeout'; error?: string }> {
+        const deadline = Date.now() + timeoutMs;
+        let attempts = 0;
+
+        while (Date.now() < deadline && attempts < this.config.maxRetries) {
+            attempts++;
+            try {
+                const status = await this.checkTransactionStatus(transactionHash);
+                if (status === 'success') return { status: 'success' };
+                if (status === 'failed') return { status: 'failed', error: 'Transaction failed on-chain' };
+            } catch (error) {
+                const err = error instanceof Error ? error : new Error(String(error));
+                if (!isRetryableError(error)) {
+                    return { status: 'failed', error: err.message };
+                }
+            }
+            const delay = calculateBackoffDelay(attempts, USER_RETRY_CONFIG);
+            await new Promise((resolve) =>
+                setTimeout(resolve, Math.min(delay, this.config.pollingInterval))
+            );
+        }
+
+        return { status: 'timeout', error: 'Transaction confirmation timed out' };
+    }
+
+    /**
      * Clean up all active monitoring sessions
      */
     destroy(): void {

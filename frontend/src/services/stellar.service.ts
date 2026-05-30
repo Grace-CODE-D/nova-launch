@@ -36,6 +36,11 @@ export interface TestAccount {
   secretKey: string;
 }
 
+/** Typed result for account lookups — avoids unhandled throws on missing/merged accounts. */
+export type AccountLookupResult =
+  | { found: true; account: any }
+  | { found: false; reason: 'missing' | 'error'; error?: string };
+
 export interface TokenDeploymentParams {
   name: string;
   symbol: string;
@@ -94,6 +99,28 @@ export class StellarService {
 
   private createError(code: string, message: string, details?: string): AppError {
     return { code, message, details };
+  }
+
+  /**
+   * Safely look up a Stellar account, returning a typed result instead of throwing.
+   * Handles missing accounts (404 / account not found) and merged accounts gracefully.
+   */
+  async getAccountSafe(address: string): Promise<AccountLookupResult> {
+    try {
+      const account = await this.server.getAccount(address);
+      return { found: true, account };
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      // Soroban SDK throws with "not found" or HTTP 404 for missing/merged accounts
+      if (
+        msg.toLowerCase().includes('not found') ||
+        msg.toLowerCase().includes('404') ||
+        msg.toLowerCase().includes('does not exist')
+      ) {
+        return { found: false, reason: 'missing' };
+      }
+      return { found: false, reason: 'error', error: msg };
+    }
   }
 
   async createTestAccount(): Promise<TestAccount> {
