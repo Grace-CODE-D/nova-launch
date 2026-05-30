@@ -7,6 +7,7 @@ import { PerformanceDashboard } from "./components/PerformanceDashboard";
 import { PWAUpdateNotification } from "./components/PWA";
 import { IntegrationVersionBanner } from "./components/IntegrationVersionBanner";
 import type { CompatibilityInfo } from "./components/IntegrationVersionBanner";
+import { LanguageSelector } from "./components/LanguageSelector";
 
 // Lazy load pages
 const LandingPage = lazy(() => import("./pages/LandingPage"));
@@ -135,6 +136,11 @@ function App({ compatibilityInfo }: { compatibilityInfo?: CompatibilityInfo }) {
           {page}
         </div>
       </Suspense>
+
+      {/* Language Selector */}
+      <div className="fixed top-4 right-4 z-50">
+        <LanguageSelector variant="inline" />
+      </div>
 
       {/* PWA Update Notification */}
       <PWAUpdateNotification />

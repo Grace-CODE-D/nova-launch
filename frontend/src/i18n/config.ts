@@ -7,6 +7,7 @@ import frTranslations from './locales/fr.json';
 import esTranslations from './locales/es.json';
 import ptTranslations from './locales/pt.json';
 import swTranslations from './locales/sw.json';
+import haTranslations from './locales/ha.json';
 
 export const SUPPORTED_LANGUAGES = {
   en: { 
@@ -44,6 +45,13 @@ export const SUPPORTED_LANGUAGES = {
     region: 'East Africa',
     flag: '🇰🇪'
   },
+  ha: { 
+    name: 'Hausa', 
+    nativeName: 'Hausa', 
+    rtl: false,
+    region: 'West Africa',
+    flag: '🇳🇬'
+  },
 } as const;
 
 export type SupportedLanguage = keyof typeof SUPPORTED_LANGUAGES;
@@ -54,6 +62,7 @@ const resources = {
   es: { translation: esTranslations },
   pt: { translation: ptTranslations },
   sw: { translation: swTranslations },
+  ha: { translation: haTranslations },
 };
 
 /**

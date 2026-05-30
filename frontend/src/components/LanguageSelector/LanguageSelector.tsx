@@ -89,8 +89,8 @@ export function LanguageSelector({
               onClick={() => handleLanguageChange(code)}
               className={`w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-gray-100 transition-colors ${
                 currentLanguage === code ? 'bg-blue-50 border-l-4 border-blue-500' : ''
-              } ${code === 'en' ? 'rounded-t-lg' : ''} ${
-                code === 'sw' ? 'rounded-b-lg' : ''
+              } ${Object.keys(SUPPORTED_LANGUAGES)[0] === code ? 'rounded-t-lg' : ''} ${
+                Object.keys(SUPPORTED_LANGUAGES).slice(-1)[0] === code ? 'rounded-b-lg' : ''
               }`}
               role="menuitem"
               aria-label={`Switch to ${lang.nativeName}`}
