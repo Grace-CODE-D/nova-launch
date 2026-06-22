@@ -134,6 +134,9 @@ mod burn_schedule_test;
 mod burn_edge_cases_test;
 
 #[cfg(test)]
+mod dividend_distribution_test;
+
+#[cfg(test)]
 mod metadata_versioning_property_test;
 
 #[cfg(test)]
@@ -1950,6 +1953,86 @@ impl TokenFactory {
         snapshot_index: u32,
     ) -> Option<types::SupplySnapshot> {
         snapshot::get_supply_snapshot(&env, token_index, snapshot_index)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Pull-model Dividend Distribution (#1148)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// Initiate a new dividend distribution round.
+    ///
+    /// Takes an atomic supply snapshot, records the distribution, and opens
+    /// the claim window.  Only the factory admin may call this.
+    ///
+    /// # Arguments
+    /// * `admin` - Factory admin address (must authorize).
+    /// * `token_index` - Token whose holders receive dividends.
+    /// * `asset` - Asset contract address being distributed.
+    /// * `total_amount` - Total pool to distribute (must be > 0).
+    /// * `claim_window_ledgers` - Ledgers the claim window stays open (must be > 0).
+    ///
+    /// # Returns `Ok(u32)` — the new distribution ID.
+    ///
+    /// # Errors
+    /// * `Unauthorized` — caller is not the admin.
+    /// * `InvalidParameters` — `total_amount ≤ 0` or `claim_window_ledgers == 0`.
+    /// * `TokenNotFound` — `token_index` does not exist.
+    /// * `DistributionZeroSupply` — token has zero supply.
+    pub fn initiate_distribution(
+        env: Env,
+        admin: Address,
+        token_index: u32,
+        asset: Address,
+        total_amount: i128,
+        claim_window_ledgers: u32,
+    ) -> Result<u32, Error> {
+        dividend_distribution::initiate_distribution(
+            &env, &admin, token_index, &asset, total_amount, claim_window_ledgers,
+        )
+    }
+
+    /// Claim a holder's proportional dividend for a distribution round.
+    ///
+    /// Computes `total_amount * holder_balance_at_snapshot / total_supply_at_snapshot`.
+    /// Marks the claim settled to prevent double-claiming.
+    ///
+    /// # Errors
+    /// * `DistributionNotFound` — invalid `distribution_id`.
+    /// * `DistributionWindowClosed` — claim deadline has passed.
+    /// * `DistributionAlreadyClaimed` — holder already claimed.
+    /// * `NothingToClaim` — holder had zero balance at snapshot.
+    pub fn claim_dividend(
+        env: Env,
+        holder: Address,
+        distribution_id: u32,
+    ) -> Result<i128, Error> {
+        dividend_distribution::claim_dividend(&env, &holder, distribution_id)
+    }
+
+    /// Reclaim unclaimed dividends after the claim window closes.
+    ///
+    /// Returns the unclaimed remainder amount (actual asset transfer is the
+    /// caller's responsibility).  Only the factory admin may call this.
+    ///
+    /// # Errors
+    /// * `Unauthorized` — caller is not the admin.
+    /// * `DistributionNotFound` — invalid `distribution_id`.
+    /// * `DistributionWindowOpen` — claim window has not expired yet.
+    /// * `DistributionAlreadyReclaimed` — already reclaimed.
+    pub fn reclaim_unclaimed(
+        env: Env,
+        admin: Address,
+        distribution_id: u32,
+    ) -> Result<i128, Error> {
+        dividend_distribution::reclaim_unclaimed(&env, &admin, distribution_id)
+    }
+
+    /// Get a distribution record by ID.
+    pub fn get_distribution(
+        env: Env,
+        distribution_id: u32,
+    ) -> Option<types::DistributionRecord> {
+        dividend_distribution::get_distribution_record(&env, distribution_id)
     }
 
     /// Return a paginated list of token indices where beneficiary is the creator.

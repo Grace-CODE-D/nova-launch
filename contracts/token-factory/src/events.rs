@@ -1380,3 +1380,82 @@ pub fn emit_vault_owner_changed(
         (old_owner.clone(), new_owner.clone()),
     );
 }
+
+// ── Pull-model dividend distribution events (#1148) ───────────────────────
+
+/// Emitted when a new distribution round is initiated.
+///
+/// **Schema Version**: 1
+/// **Event Name**: div_ini_v1
+///
+/// **Topics** (indexed):
+/// - distribution_id: u32
+///
+/// **Payload**:
+/// - admin: Address
+/// - token_index: u32
+/// - asset: Address
+/// - total_amount: i128
+/// - snapshot_ledger: u32
+/// - claim_deadline_ledger: u32
+pub fn emit_distribution_initiated(
+    env: &Env,
+    distribution_id: u32,
+    admin: &Address,
+    token_index: u32,
+    asset: &Address,
+    total_amount: i128,
+    snapshot_ledger: u32,
+    claim_deadline_ledger: u32,
+) {
+    env.events().publish(
+        (symbol_short!("div_ini_v1"), distribution_id),
+        (admin, token_index, asset, total_amount, snapshot_ledger, claim_deadline_ledger),
+    );
+}
+
+/// Emitted when a holder claims their dividend share.
+///
+/// **Schema Version**: 1
+/// **Event Name**: div_clm_v1
+///
+/// **Topics** (indexed):
+/// - distribution_id: u32
+///
+/// **Payload**:
+/// - holder: Address
+/// - amount: i128
+pub fn emit_dividend_claimed(
+    env: &Env,
+    distribution_id: u32,
+    holder: &Address,
+    amount: i128,
+) {
+    env.events().publish(
+        (symbol_short!("div_clm_v1"), distribution_id),
+        (holder, amount),
+    );
+}
+
+/// Emitted when the admin reclaims unclaimed dividends after the window closes.
+///
+/// **Schema Version**: 1
+/// **Event Name**: div_rcl_v1
+///
+/// **Topics** (indexed):
+/// - distribution_id: u32
+///
+/// **Payload**:
+/// - admin: Address
+/// - reclaimed_amount: i128
+pub fn emit_dividend_reclaimed(
+    env: &Env,
+    distribution_id: u32,
+    admin: &Address,
+    reclaimed_amount: i128,
+) {
+    env.events().publish(
+        (symbol_short!("div_rcl_v1"), distribution_id),
+        (admin, reclaimed_amount),
+    );
+}

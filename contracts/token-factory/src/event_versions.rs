@@ -38,3 +38,8 @@ pub const VOTE_CAST_VERSION: u32 = 1;
 pub const PROPOSAL_QUEUED_VERSION: u32 = 1;
 pub const PROPOSAL_EXECUTED_VERSION: u32 = 1;
 pub const PROPOSAL_CANCELLED_VERSION: u32 = 1;
+
+// Dividend distribution event versions (#1148)
+pub const DISTRIBUTION_INITIATED_VERSION: u32 = 1;
+pub const DIVIDEND_CLAIMED_VERSION: u32 = 1;
+pub const DIVIDEND_RECLAIMED_VERSION: u32 = 1;

@@ -680,6 +680,15 @@ pub enum DataKey {
     MetadataContentHash(u32),
     /// Pending vault-owner change: vault_id → (new_owner, approvals_bitmap)
     PendingVaultOwnerChange(u64),
+    // Pull-model dividend distribution (#1148)
+    /// Distribution record keyed by distribution_id
+    Distribution(u32),
+    /// Total number of distributions initiated
+    DistributionCount,
+    /// Whether a holder has claimed for a distribution: (distribution_id, holder)
+    DistributionClaimed(u32, Address),
+    /// Running total of amounts claimed for a distribution
+    DistributionClaimedTotal(u32),
 }
 
 /// A point-in-time record of a token holder's balance.
@@ -975,6 +984,13 @@ impl Error {
     pub const VaultOwnerChangePending: Self = Self(97);
     pub const VaultOwnerChangeNotFound: Self = Self(98);
     pub const VaultOwnerChangeAlreadyApproved: Self = Self(99);
+    // Pull-model dividend distribution errors (#1148)
+    pub const DistributionNotFound: Self = Self(100);
+    pub const DistributionWindowClosed: Self = Self(101);
+    pub const DistributionWindowOpen: Self = Self(102);
+    pub const DistributionAlreadyClaimed: Self = Self(103);
+    pub const DistributionAlreadyReclaimed: Self = Self(104);
+    pub const DistributionZeroSupply: Self = Self(105);
 }
 
 impl From<Error> for soroban_sdk::Error {
@@ -1631,4 +1647,38 @@ pub struct FractionalizationParams {
     pub total_supply: i128,
     pub token_name: String,
     pub token_symbol: String,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pull-model Dividend Distribution Types (#1148)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// An on-chain dividend distribution round (pull model).
+///
+/// Created by `initiate_distribution`; each holder independently calls
+/// `claim_dividend` during the claim window.  After `claim_deadline_ledger`
+/// passes, unclaimed funds can be recovered by the admin via `reclaim_unclaimed`.
+///
+/// # Fields
+/// * `id`                      – Unique distribution identifier (auto-increment)
+/// * `token_index`             – Index of the token whose holders receive dividends
+/// * `asset`                   – Address of the asset being distributed (e.g. XLM token)
+/// * `total_amount`            – Total pool size funded by the initiator
+/// * `snapshot_ledger`         – Ledger at which holder balances were snapshotted
+/// * `total_supply_at_snapshot`– Token total supply at snapshot (denominator for pro-rata)
+/// * `claim_deadline_ledger`   – Last ledger at which holders may claim
+/// * `reclaimed`               – Whether the admin has already reclaimed unclaimed funds
+/// * `created_at`              – Ledger timestamp of distribution creation
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DistributionRecord {
+    pub id: u32,
+    pub token_index: u32,
+    pub asset: Address,
+    pub total_amount: i128,
+    pub snapshot_ledger: u32,
+    pub total_supply_at_snapshot: i128,
+    pub claim_deadline_ledger: u32,
+    pub reclaimed: bool,
+    pub created_at: u64,
 }

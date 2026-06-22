@@ -1,390 +1,258 @@
-// Pro-rata Dividend Distribution Module (#1148)
-//
-// This module provides on-chain pro-rata dividend distribution that splits
-// a pool across token holders proportionally based on their balance at snapshot.
-//
-// Key features:
-// - Deterministic handling of remainder dust
-// - Preservation of authorization invariants (require_auth)
-// - Event emission for state changes
-//
-// Dust policy:
-// - When distributing, remainder (pool_amount % total_shares) is tracked
-// - Dust accumulates and is distributed in subsequent rounds
-// - Ensures no tokens are lost due to integer division
+/// Pull-model Dividend Distribution (#1148)
+///
+/// Flow:
+/// 1. Admin calls `initiate_distribution` — takes an atomic supply snapshot,
+///    stores the distribution record, and opens the claim window.
+/// 2. Each holder calls `claim_dividend` — computes their pro-rata share from
+///    the snapshot and marks the claim settled (double-claim prevention).
+/// 3. After `claim_deadline_ledger` passes, admin calls `reclaim_unclaimed` to
+///    recover the unclaimed remainder back to treasury.
 
-use crate::storage;
-use crate::types::Error;
-use soroban_sdk::{symbol_short, Address, Env, Vec};
+use soroban_sdk::{Address, Env};
 
-/// Maximum number of holders that can receive dividends in a single distribution
-const MAX_DIVIDEND_HOLDERS: u32 = 1000;
+use crate::{events, snapshot, storage, types::{DataKey, DistributionRecord, Error}};
 
-/// Dividend distribution record
-#[soroban_sdk::contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct DividendDistribution {
-    pub token_index: u32,
-    pub pool_amount: i128,
-    pub total_eligible: i128, // Total tokens eligible for distribution
-    pub snapshot_ledger: u32,
-    pub distributed_amount: i128,
-    pub remaining_dust: i128,
-    pub timestamp: u64,
+// ─────────────────────────────────────────────
+// Storage helpers
+// ─────────────────────────────────────────────
+
+fn get_distribution_count(env: &Env) -> u32 {
+    env.storage()
+        .persistent()
+        .get(&DataKey::DistributionCount)
+        .unwrap_or(0)
 }
 
-/// Compute each holder's share proportional to their balance at snapshot.
+fn get_distribution(env: &Env, id: u32) -> Option<DistributionRecord> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::Distribution(id))
+}
+
+fn set_distribution(env: &Env, rec: &DistributionRecord) {
+    let key = DataKey::Distribution(rec.id);
+    env.storage().persistent().set(&key, rec);
+    storage::bump_persistent(env, &key);
+}
+
+fn is_claimed(env: &Env, distribution_id: u32, holder: &Address) -> bool {
+    env.storage()
+        .persistent()
+        .get(&DataKey::DistributionClaimed(distribution_id, holder.clone()))
+        .unwrap_or(false)
+}
+
+fn set_claimed(env: &Env, distribution_id: u32, holder: &Address) {
+    let key = DataKey::DistributionClaimed(distribution_id, holder.clone());
+    env.storage().persistent().set(&key, &true);
+    storage::bump_persistent(env, &key);
+}
+
+fn get_claimed_total(env: &Env, distribution_id: u32) -> i128 {
+    env.storage()
+        .persistent()
+        .get(&DataKey::DistributionClaimedTotal(distribution_id))
+        .unwrap_or(0)
+}
+
+fn add_claimed_total(env: &Env, distribution_id: u32, amount: i128) {
+    let new_total = get_claimed_total(env, distribution_id)
+        .checked_add(amount)
+        .unwrap_or(i128::MAX);
+    let key = DataKey::DistributionClaimedTotal(distribution_id);
+    env.storage().persistent().set(&key, &new_total);
+    storage::bump_persistent(env, &key);
+}
+
+// ─────────────────────────────────────────────
+// Public API
+// ─────────────────────────────────────────────
+
+/// Initiate a new distribution round.
+///
+/// Atomically records the current supply snapshot, stores the distribution
+/// parameters, and opens the claim window.
 ///
 /// # Arguments
-/// * `env` - The contract environment
-/// * `token_index` - Token index to distribute dividends for
-/// * `pool_amount` - Total amount to distribute
-/// * `holders` - List of holder addresses to receive dividends
+/// * `admin` - Must be the factory admin; must call `require_auth` before this.
+/// * `token_index` - Token whose holder balances determine pro-rata shares.
+/// * `asset` - Asset contract address being distributed (e.g. wrapped XLM).
+/// * `total_amount` - Total pool to distribute (must be > 0).
+/// * `claim_window_ledgers` - Number of ledgers the claim window stays open.
 ///
-/// # Returns
-/// Vec of (holder, amount) pairs representing each holder's dividend
+/// # Returns `Ok(u32)` - The new distribution ID.
 ///
 /// # Errors
-/// * `Error::DividendZeroHolders` - No holders provided
-/// * `Error::DividendExceedsPool` - Pool amount is invalid
-/// * `Error::DividendOverflow` - Calculation overflow
-pub fn distribute_dividends(
+/// * `Unauthorized` - Caller is not the factory admin.
+/// * `InvalidParameters` - `total_amount ≤ 0` or `claim_window_ledgers == 0`.
+/// * `DistributionZeroSupply` - Token has zero supply at snapshot ledger.
+pub fn initiate_distribution(
     env: &Env,
+    admin: &Address,
     token_index: u32,
-    admin: Address,
-    pool_amount: i128,
-    holders: Vec<Address>,
-) -> Result<Vec<(Address, i128)>, Error> {
-    // Authorization check
+    asset: &Address,
+    total_amount: i128,
+    claim_window_ledgers: u32,
+) -> Result<u32, Error> {
     admin.require_auth();
-
-    // Verify admin
-    let current_admin = storage::get_admin(env);
-    if admin != current_admin {
+    if *admin != storage::get_admin(env) {
         return Err(Error::Unauthorized);
     }
-
-    // Validate inputs
-    if pool_amount <= 0 {
+    if total_amount <= 0 || claim_window_ledgers == 0 {
         return Err(Error::InvalidParameters);
     }
 
-    let holder_count = holders.len();
-    if holder_count == 0 {
-        return Err(Error::DividendZeroHolders);
-    }
-
-    if holder_count > MAX_DIVIDEND_HOLDERS {
-        return Err(Error::BatchTooLarge);
-    }
-
-    // Get total eligible balance (sum of all holder balances)
-    let mut total_eligible: i128 = 0;
-    for i in 0..holder_count {
-        let holder = holders.get(i).unwrap();
-        let balance = storage::get_balance(env, token_index, &holder);
-        total_eligible = total_eligible.checked_add(balance).ok_or(Error::DividendOverflow)?;
-    }
-
-    if total_eligible == 0 {
-        return Err(Error::DividendZeroHolders);
-    }
-
-    // Calculate dust (remainder from integer division)
-    // Dust policy: remainder accumulates and is added to next distribution
-    let dust = pool_amount % total_eligible;
-    let distributable_amount = pool_amount - dust;
-
-    // Store dust for future distributions
-    let existing_dust = get_accumulated_dust(env, token_index);
-    let total_dust = existing_dust.checked_add(dust).ok_or(Error::DividendOverflow)?;
-    set_accumulated_dust(env, token_index, total_dust);
-
-    // Calculate each holder's share
-    let mut distributions = Vec::new(env);
-    let pool_u128 = distributable_amount as u128;
-    let total_eligible_u128 = total_eligible as u128;
-
-    for i in 0..holder_count {
-        let holder = holders.get(i).unwrap();
-        let balance = storage::get_balance(env, token_index, &holder);
-
-        if balance > 0 {
-            // holder_amount = pool_amount * holder_balance / total_eligible
-            let balance_u128 = balance as u128;
-            let numerator = pool_u128
-                .checked_mul(balance_u128)
-                .ok_or(Error::DividendOverflow)?;
-            let amount = (numerator / total_eligible_u128) as i128;
-
-            if amount > 0 {
-                distributions.push_back((holder, amount));
-            }
-        }
-    }
-
-    // Emit dividend distribution event
+    // Atomic snapshot: take a fresh supply snapshot at the current ledger.
     let snapshot_ledger = env.ledger().sequence();
-    let timestamp = env.ledger().timestamp();
-    emit_dividend_distribution(
-        env,
-        token_index,
-        pool_amount,
-        distributable_amount,
-        dust,
-        holder_count,
-        snapshot_ledger,
-    );
+    let token_info = storage::get_token_info(env, token_index)
+        .ok_or(Error::TokenNotFound)?;
+    let total_supply = token_info.total_supply;
+    let _ = snapshot::record_supply_snapshot(env, token_index, total_supply);
 
-    // Store distribution record
-    let record = DividendDistribution {
+    if total_supply <= 0 {
+        return Err(Error::DistributionZeroSupply);
+    }
+
+    let id = get_distribution_count(env);
+    let claim_deadline_ledger = snapshot_ledger
+        .checked_add(claim_window_ledgers)
+        .ok_or(Error::ArithmeticError)?;
+
+    let rec = DistributionRecord {
+        id,
         token_index,
-        pool_amount,
-        total_eligible,
+        asset: asset.clone(),
+        total_amount,
         snapshot_ledger,
-        distributed_amount: distributable_amount,
-        remaining_dust: total_dust,
-        timestamp,
+        total_supply_at_snapshot: total_supply,
+        claim_deadline_ledger,
+        reclaimed: false,
+        created_at: env.ledger().timestamp(),
     };
-    store_distribution_record(env, &record);
+    set_distribution(env, &rec);
 
-    Ok(distributions)
-}
-
-/// Get accumulated dust from previous distributions
-fn get_accumulated_dust(env: &Env, token_index: u32) -> i128 {
+    // Increment count
     env.storage()
         .persistent()
-        .get(&crate::types::DataKey::DividendDust(token_index))
-        .unwrap_or(0)
-}
+        .set(&DataKey::DistributionCount, &(id + 1));
+    storage::bump_persistent(env, &DataKey::DistributionCount);
 
-/// Set accumulated dust
-fn set_accumulated_dust(env: &Env, token_index: u32, dust: i128) {
-    env.storage()
-        .persistent()
-        .set(&crate::types::DataKey::DividendDust(token_index), &dust);
-}
-
-/// Store dividend distribution record
-fn store_distribution_record(env: &Env, record: &DividendDistribution) {
-    let count = get_distribution_count(env);
-    env.storage()
-        .persistent()
-        .set(&crate::types::DataKey::DividendRecord(count), record);
-    increment_distribution_count(env);
-}
-
-fn get_distribution_count(env: &Env) -> u64 {
-    env.storage()
-        .persistent()
-        .get(&crate::types::DataKey::DividendDistributionCount)
-        .unwrap_or(0)
-}
-
-fn increment_distribution_count(env: &Env) {
-    let count = get_distribution_count(env);
-    env.storage()
-        .persistent()
-        .set(&crate::types::DataKey::DividendDistributionCount, &(count + 1));
-}
-
-// ─────────────────────────────────────────────
-// Event emission
-// ─────────────────────────────────────────────
-
-/// Emit dividend distribution event (v1)
-///
-/// **Schema Version**: 1
-/// **Event Name**: div_dst_v1
-///
-/// **Topics** (indexed):
-/// - Event name: "div_dst_v1"
-/// - token_index: u32 - The token index
-///
-/// **Payload** (non-indexed):
-/// - pool_amount: i128 - Total pool amount for distribution
-/// - distributable: i128 - Amount after dust removal
-/// - dust: i128 - Remainder carried over
-/// - holder_count: u32 - Number of recipients
-/// - snapshot_ledger: u32 - Ledger when snapshot was taken
-///
-/// Emitted when dividends are distributed to holders
-fn emit_dividend_distribution(
-    env: &Env,
-    token_index: u32,
-    pool_amount: i128,
-    distributable: i128,
-    dust: i128,
-    holder_count: u32,
-    snapshot_ledger: u32,
-) {
-    env.events().publish(
-        (symbol_short!("div_dst"), token_index),
-        (pool_amount, distributable, dust, holder_count, snapshot_ledger),
+    events::emit_distribution_initiated(
+        env,
+        id,
+        admin,
+        token_index,
+        asset,
+        total_amount,
+        snapshot_ledger,
+        claim_deadline_ledger,
     );
+
+    Ok(id)
 }
 
-// ─────────────────────────────────────────────
-// Tests
-// ─────────────────────────────────────────────
+/// Claim a holder's proportional dividend for distribution `distribution_id`.
+///
+/// The holder's share is computed as:
+///   `balance_at_snapshot / total_supply_at_snapshot * total_amount`
+///
+/// # Errors
+/// * `DistributionNotFound` - No distribution with that ID.
+/// * `DistributionWindowClosed` - Claim deadline has passed.
+/// * `DistributionAlreadyClaimed` - Holder already claimed.
+/// * `NothingToClaim` - Holder had zero balance at snapshot.
+pub fn claim_dividend(
+    env: &Env,
+    holder: &Address,
+    distribution_id: u32,
+) -> Result<i128, Error> {
+    holder.require_auth();
 
-#[cfg(test)]
-mod dividend_distribution_test {
-    use super::*;
-    use soroban_sdk::{testutils::Address as _, Address, Env};
+    let rec = get_distribution(env, distribution_id)
+        .ok_or(Error::DistributionNotFound)?;
 
-    fn setup() -> (Env, Address, u32) {
-        let env = Env::default();
-        env.mock_all_auths();
-        let admin = Address::generate(&env);
-        let token_index = 0u32;
-
-        env.register_contract(None, crate::TokenFactory);
-        storage::set_admin(&env, &admin);
-
-        (env, admin, token_index)
+    if env.ledger().sequence() > rec.claim_deadline_ledger {
+        return Err(Error::DistributionWindowClosed);
     }
 
-    #[test]
-    fn test_even_distribution() {
-        let (env, admin, token_index) = setup();
-
-        // Create 3 holders with equal balance
-        let holder1 = Address::generate(&env);
-        let holder2 = Address::generate(&env);
-        let holder3 = Address::generate(&env);
-
-        storage::set_balance(&env, token_index, &holder1, 1000);
-        storage::set_balance(&env, token_index, &holder2, 1000);
-        storage::set_balance(&env, token_index, &holder3, 1000);
-
-        let mut holders = Vec::new(&env);
-        holders.push_back(holder1);
-        holders.push_back(holder2);
-        holders.push_back(holder3);
-
-        // Distribute 3000 (1000 each)
-        let result = distribute_dividends(&env, token_index, admin, 3000, holders);
-
-        assert!(result.is_ok());
-        let distributions = result.unwrap();
-        assert_eq!(distributions.len(), 3);
-
-        // Each should get exactly 1000
-        let mut amounts = Vec::new(&env);
-        for i in 0..3 {
-            let (_, amount) = distributions.get(i).unwrap();
-            amounts.push_back(*amount);
-        }
-        assert!(amounts.contains(&1000));
-        assert!(amounts.contains(&1000));
-        assert!(amounts.contains(&1000));
+    if is_claimed(env, distribution_id, holder) {
+        return Err(Error::DistributionAlreadyClaimed);
     }
 
-    #[test]
-    fn test_uneven_distribution() {
-        let (env, admin, token_index) = setup();
+    let balance = snapshot::get_balance_at_ledger(
+        env,
+        rec.token_index,
+        holder,
+        rec.snapshot_ledger,
+    )?;
 
-        // Create holders with different balances: 500, 300, 200 (total 1000)
-        let holder1 = Address::generate(&env);
-        let holder2 = Address::generate(&env);
-        let holder3 = Address::generate(&env);
-
-        storage::set_balance(&env, token_index, &holder1, 500);
-        storage::set_balance(&env, token_index, &holder2, 300);
-        storage::set_balance(&env, token_index, &holder3, 200);
-
-        let mut holders = Vec::new(&env);
-        holders.push_back(holder1);
-        holders.push_back(holder2);
-        holders.push_back(holder3);
-
-        // Distribute 1000 (proportional)
-        let result = distribute_dividends(&env, token_index, admin, 1000, holders);
-
-        assert!(result.is_ok());
-        let distributions = result.unwrap();
-
-        // holder1: 500/1000 * 1000 = 500
-        // holder2: 300/1000 * 1000 = 300
-        // holder3: 200/1000 * 1000 = 200
-        let mut has_500 = false;
-        let mut has_300 = false;
-        let mut has_200 = false;
-        for i in 0..distributions.len() {
-            let (_, amount) = distributions.get(i).unwrap();
-            let amt = amount;
-            if amt == 500 { has_500 = true; }
-            if amt == 300 { has_300 = true; }
-            if amt == 200 { has_200 = true; }
-        }
-        assert!(has_500);
-        assert!(has_300);
-        assert!(has_200);
+    if balance <= 0 {
+        return Err(Error::NothingToClaim);
     }
 
-    #[test]
-    fn test_dust_handling() {
-        let (env, admin, token_index) = setup();
+    // Pro-rata: amount = total_amount * balance / total_supply
+    // Use u128 arithmetic to avoid overflow on large token supplies.
+    let amount = (rec.total_amount as u128)
+        .checked_mul(balance as u128)
+        .ok_or(Error::ArithmeticError)?
+        / (rec.total_supply_at_snapshot as u128);
+    let amount = amount as i128;
 
-        // Two holders: 300, 700 (total 1000)
-        let holder1 = Address::generate(&env);
-        let holder2 = Address::generate(&env);
-
-        storage::set_balance(&env, token_index, &holder1, 300);
-        storage::set_balance(&env, token_index, &holder2, 700);
-
-        let mut holders = Vec::new(&env);
-        holders.push_back(holder1);
-        holders.push_back(holder2);
-
-        // Distribute 1000 - should have 0 dust (exact division)
-        let result = distribute_dividends(&env, token_index, admin.clone(), 1000, holders.clone());
-        assert!(result.is_ok());
-
-        // Now distribute 999 - should have dust
-        let result2 = distribute_dividends(&env, token_index, admin, 999, holders);
-        assert!(result2.is_ok());
+    if amount <= 0 {
+        return Err(Error::NothingToClaim);
     }
 
-    #[test]
-    fn test_zero_holders_error() {
-        let (env, admin, token_index) = setup();
+    set_claimed(env, distribution_id, holder);
+    add_claimed_total(env, distribution_id, amount);
 
-        let holders: Vec<Address> = Vec::new(&env);
-        let result = distribute_dividends(&env, token_index, admin, 1000, holders);
+    events::emit_dividend_claimed(env, distribution_id, holder, amount);
 
-        assert_eq!(result, Err(Error::DividendZeroHolders));
+    Ok(amount)
+}
+
+/// Reclaim unclaimed dividends after the claim window closes.
+///
+/// Returns the unclaimed remainder to the treasury (tracked via event only;
+/// actual asset transfer is handled by the caller / treasury module).
+///
+/// # Errors
+/// * `Unauthorized` - Caller is not the factory admin.
+/// * `DistributionNotFound` - No distribution with that ID.
+/// * `DistributionWindowOpen` - Claim window has not yet expired.
+/// * `DistributionAlreadyReclaimed` - Already reclaimed.
+pub fn reclaim_unclaimed(
+    env: &Env,
+    admin: &Address,
+    distribution_id: u32,
+) -> Result<i128, Error> {
+    admin.require_auth();
+    if *admin != storage::get_admin(env) {
+        return Err(Error::Unauthorized);
     }
 
-    #[test]
-    fn test_unauthorized_error() {
-        let (env, admin, token_index) = setup();
-        let unauthorized = Address::generate(&env);
+    let mut rec = get_distribution(env, distribution_id)
+        .ok_or(Error::DistributionNotFound)?;
 
-        let holder = Address::generate(&env);
-        storage::set_balance(&env, token_index, &holder, 1000);
-        let mut holders = Vec::new(&env);
-        holders.push_back(holder);
-
-        let result = distribute_dividends(&env, token_index, unauthorized, 1000, holders);
-        assert_eq!(result, Err(Error::Unauthorized));
+    if env.ledger().sequence() <= rec.claim_deadline_ledger {
+        return Err(Error::DistributionWindowOpen);
     }
 
-    #[test]
-    fn test_zero_total_balance_error() {
-        let (env, admin, token_index) = setup();
-
-        // All holders have zero balance
-        let holder1 = Address::generate(&env);
-        let holder2 = Address::generate(&env);
-
-        let mut holders = Vec::new(&env);
-        holders.push_back(holder1);
-        holders.push_back(holder2);
-
-        let result = distribute_dividends(&env, token_index, admin, 1000, holders);
-        assert_eq!(result, Err(Error::DividendZeroHolders));
+    if rec.reclaimed {
+        return Err(Error::DistributionAlreadyReclaimed);
     }
+
+    let claimed = get_claimed_total(env, distribution_id);
+    let unclaimed = rec.total_amount.checked_sub(claimed).unwrap_or(0);
+
+    rec.reclaimed = true;
+    set_distribution(env, &rec);
+
+    events::emit_dividend_reclaimed(env, distribution_id, admin, unclaimed);
+
+    Ok(unclaimed)
+}
+
+/// Retrieve a distribution record by ID.
+pub fn get_distribution_record(env: &Env, distribution_id: u32) -> Option<DistributionRecord> {
+    get_distribution(env, distribution_id)
 }
